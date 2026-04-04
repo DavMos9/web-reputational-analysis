@@ -28,3 +28,9 @@ data/final/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/final/.gitkeep
+
+# Jupyter (se li userai)
+.ipynb_checkpoints/
+
+# Mac extra
+*.DS_Store
