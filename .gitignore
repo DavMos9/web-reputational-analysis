@@ -20,7 +20,7 @@ config_local.py
 # Logs
 *.log
 
-# Data (ignore contenuti ma non le cartelle)
+# Data
 data/raw/*
 data/processed/*
 data/final/*
@@ -29,7 +29,7 @@ data/final/*
 !data/processed/.gitkeep
 !data/final/.gitkeep
 
-# Jupyter (se li userai)
+# Jupyter
 .ipynb_checkpoints/
 
 # Mac extra
