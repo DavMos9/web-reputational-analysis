@@ -34,28 +34,16 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 
 ## Architettura
 
-Input (target + query)
-    |
-    v
-Collectors (API)
-    |
-    v
-Raw data
-    |
-    v
-Normalizer
-    |
-    v
-Cleaner
-    |
-    v
-Deduplicator
-    |
-    v
-Export (JSON / CSV)
-    |
-    v
-IBM Cloud Pak for Data
+Pipeline:
+
+- Input (target + query)
+- Collectors (API)
+- Raw data
+- Normalizer
+- Cleaner
+- Deduplicator
+- Export (JSON / CSV)
+- IBM Cloud Pak for Data
 
 ---
 
