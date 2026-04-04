@@ -6,6 +6,8 @@ __pycache__/
 
 # Virtual env
 venv/
+.venv/
+env/
 .env
 
 # API keys / config
@@ -15,10 +17,14 @@ config_local.py
 # OS
 .DS_Store
 
-# Data
+# Logs
+*.log
+
+# Data (ignore contenuti ma non le cartelle)
 data/raw/*
 data/processed/*
 data/final/*
 
-# Logs
-*.log
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/final/.gitkeep
