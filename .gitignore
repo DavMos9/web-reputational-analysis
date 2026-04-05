@@ -33,3 +33,6 @@ data/final/*
 
 # Jupyter
 .ipynb_checkpoints/
+
+#vscode
+.vscode/
