@@ -8,10 +8,12 @@ __pycache__/
 venv/
 .venv/
 env/
-.env
 
-# API keys / config
+# Environment files
 .env
+.env.*
+
+# API keys / local config
 config_local.py
 
 # OS
@@ -31,6 +33,3 @@ data/final/*
 
 # Jupyter
 .ipynb_checkpoints/
-
-# Mac extra
-*.DS_Store

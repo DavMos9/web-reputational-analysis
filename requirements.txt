@@ -2,3 +2,4 @@ requests
 wikipedia
 python-dateutil
 pandas
+python-dotenv
