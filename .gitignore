@@ -7,11 +7,11 @@ __pycache__/
 # Virtual env
 venv/
 .venv/
-env/
 
 # Environment files
 .env
 .env.*
+env/
 
 # API keys / local config
 config_local.py
