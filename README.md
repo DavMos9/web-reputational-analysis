@@ -22,8 +22,9 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 - GDELT DOC 2.0
 - Wikipedia
 - YouTube Data API
+- Reddit (PRAW)
 
-Nota: Google Search API è stata valutata ma non utilizzata per limitazioni di accesso al servizio.
+Nota: Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato.
 
 ## Architettura
 
@@ -52,6 +53,7 @@ web-reputational-analysis/
   - gdelt_collector.py
   - wikipedia_collector.py
   - youtube_collector.py
+  - reddit_collector.py
 
 - processors/
 - exporters/

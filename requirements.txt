@@ -3,3 +3,4 @@ wikipedia
 python-dateutil
 pandas
 python-dotenv
+praw
