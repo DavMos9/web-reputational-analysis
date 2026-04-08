@@ -18,11 +18,12 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 
 ## Fonti dati
 
-- Google Search API
-- YouTube Data API
 - NewsAPI
-- Wikipedia
 - GDELT DOC 2.0
+- Wikipedia
+- YouTube Data API
+
+Nota: Google Search API è stata valutata ma non utilizzata per limitazioni di accesso al servizio.
 
 ## Architettura
 
@@ -47,7 +48,10 @@ web-reputational-analysis/
 - README.md
 
 - collectors/
-  - google_collector.py
+  - news_collector.py
+  - gdelt_collector.py
+  - wikipedia_collector.py
+  - youtube_collector.py
 
 - processors/
 - exporters/
@@ -67,8 +71,9 @@ Tutti i dati vengono convertiti in uno schema unificato.
 
 Esempio:
 
+```json
 {
-  "source_type": "google",
+  "source_type": "news",
   "target_entity": "Nome Cognome",
   "query": "Nome Cognome scandalo",
   "title": "Titolo risultato",
@@ -77,57 +82,3 @@ Esempio:
   "published_at": null,
   "retrieved_at": "2026-04-04T15:00:00Z"
 }
-
-Schema completo disponibile in:
-docs/data_schema.tex
-
-## Configurazione
-
-Le API key non sono incluse nel repository.
-
-Creare un file `.env` oppure usare variabili ambiente:
-
-GOOGLE_API_KEY=
-GOOGLE_CX=
-YOUTUBE_API_KEY=
-NEWS_API_KEY=
-
-## Installazione
-
-git clone https://github.com/DavMos9/web-reputational-analysis.git  
-cd web-reputational-analysis  
-
-python3 -m venv venv  
-source venv/bin/activate  
-
-pip install -r requirements.txt  
-
-## Utilizzo
-
-python main.py
-
-## Stato del progetto
-
-- Architettura definita
-- Documentazione completata
-- Implementazione in corso
-
-## Note
-
-- I dati nella cartella `data/` non vengono versionati
-- Le API possono avere limiti di quota
-- Deduplicazione:
-  - base in Python
-  - avanzata in ETL (IBM)
-
-## Roadmap
-
-- Implementazione collectors
-- Normalizzazione dati
-- Deduplicazione
-- Export JSON/CSV
-- Integrazione ETL
-
-## Licenza
-
-Da definire
