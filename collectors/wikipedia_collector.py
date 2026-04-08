@@ -1,13 +1,66 @@
 """
 Wikipedia Collector
-Recupera contesto enciclopedico tramite la libreria wikipediaapi.
+Recupera contesto enciclopedico tramite Wikipedia API.
 Completamente gratuito, nessuna API key richiesta.
+
+Strategia:
+1. Usa l'API opensearch di Wikipedia per trovare il titolo della pagina
+   più rilevante per la query (funziona come un motore di ricerca interno).
+2. Recupera il contenuto della pagina trovata con wikipediaapi.
+3. Deduplica per titolo: se query diverse portano alla stessa pagina,
+   la pagina viene scaricata una sola volta.
+
+Esempio: query "Elon Musk Tesla" → opensearch trova "Elon Musk" → pagina scaricata.
+         query "Elon Musk SpaceX" → opensearch trova "Elon Musk" → già vista, saltata.
 """
 
+import requests
 import wikipediaapi
 from datetime import datetime, timezone
 
 WIKI_USER_AGENT = "web-reputational-analysis/1.0"
+OPENSEARCH_URL = "https://{lang}.wikipedia.org/w/api.php"
+
+# Cache globale per titoli già scaricati nella sessione corrente
+_fetched_titles: set[str] = set()
+
+
+def _reset_cache():
+    """Svuota la cache dei titoli (utile nei test)."""
+    global _fetched_titles
+    _fetched_titles = set()
+
+
+def _opensearch(query: str, lang: str) -> str | None:
+    """
+    Usa l'API opensearch di Wikipedia per trovare il titolo della pagina
+    più rilevante per una query in linguaggio naturale.
+
+    Returns:
+        Titolo della prima pagina trovata, o None.
+    """
+    params = {
+        "action": "opensearch",
+        "search": query,
+        "limit": 1,
+        "namespace": 0,
+        "format": "json",
+    }
+    try:
+        response = requests.get(
+            OPENSEARCH_URL.format(lang=lang),
+            params=params,
+            headers={"User-Agent": WIKI_USER_AGENT},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        # Formato risposta: [query, [titoli], [descrizioni], [url]]
+        titles = data[1] if len(data) > 1 else []
+        return titles[0] if titles else None
+    except Exception as e:
+        print(f"[Wikipedia] Opensearch fallita per '{query}' ({lang}): {e}")
+        return None
 
 
 def _empty_record() -> dict:
@@ -37,42 +90,53 @@ def _empty_record() -> dict:
     }
 
 
-def _fetch_page(wiki, title: str) -> dict | None:
-    """Recupera una singola pagina Wikipedia."""
-    page = wiki.page(title)
-    if not page.exists():
-        return None
-    return page
-
-
 def collect(target_entity: str, query: str, lang: str = "it") -> list[dict]:
     """
-    Recupera la pagina Wikipedia corrispondente alla query.
-    Prova prima in italiano, poi in inglese se non trovata.
+    Recupera la pagina Wikipedia più rilevante per la query.
+
+    Usa opensearch per trovare il titolo corretto, poi scarica la pagina.
+    Se la stessa pagina è già stata scaricata in una chiamata precedente
+    (per una query diversa), restituisce lista vuota per evitare duplicati.
 
     Args:
-        target_entity: entità oggetto dell'analisi (es. "Mario Rossi")
-        query: termine di ricerca (di solito il nome dell'entità)
+        target_entity: entità oggetto dell'analisi (es. "Elon Musk")
+        query: query di ricerca (es. "Elon Musk Tesla", "Elon Musk SpaceX")
         lang: lingua preferita ("it" o "en")
 
     Returns:
         Lista con 0 o 1 record normalizzati secondo il data contract.
     """
-    records = []
     languages = [lang] if lang == "en" else [lang, "en"]
 
     for language in languages:
+        # Fase 1: cerca l'entità (non la query composta) su Wikipedia.
+        # Wikipedia è contesto enciclopedico sul target — le query composte
+        # come "Elon Musk Tesla" non corrispondono a pagine reali.
+        page_title = _opensearch(target_entity, language)
+        if not page_title:
+            print(f"[Wikipedia] Nessun risultato opensearch per '{query}' ({language})")
+            continue
+
+        # Chiave cache: lingua + titolo normalizzato
+        cache_key = f"{language}:{page_title.lower()}"
+        if cache_key in _fetched_titles:
+            print(f"[Wikipedia] Pagina '{page_title}' già scaricata, salto (query: '{query}')")
+            return []
+
+        # Fase 2: scarica il contenuto della pagina
         wiki = wikipediaapi.Wikipedia(
             user_agent=WIKI_USER_AGENT,
             language=language,
         )
-        page = _fetch_page(wiki, query)
+        page = wiki.page(page_title)
 
-        if page is None:
-            print(f"[Wikipedia] Nessuna pagina trovata per '{query}' in lingua '{language}'")
+        if not page.exists():
+            print(f"[Wikipedia] Pagina '{page_title}' non trovata ({language})")
             continue
 
-        # Usa il summary come snippet e le prime 2000 char come content
+        # Registra in cache e costruisci il record
+        _fetched_titles.add(cache_key)
+
         summary = page.summary or ""
         full_text = page.text or ""
 
@@ -91,8 +155,7 @@ def collect(target_entity: str, query: str, lang: str = "it") -> list[dict]:
             "language": language,
         }
 
-        records.append(record)
-        print(f"[Wikipedia] Pagina trovata: '{page.title}' (lingua: {language})")
-        break  # Trovata la prima pagina valida, non cercare in altre lingue
+        print(f"[Wikipedia] Pagina trovata: '{page.title}' (lingua: {language}, query: '{query}')")
+        return [record]
 
-    return records
+    return []

@@ -24,8 +24,6 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 - YouTube Data API
 - Reddit (PRAW)
 
-Nota: Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato.
-
 ## Architettura
 
 Pipeline logica:
