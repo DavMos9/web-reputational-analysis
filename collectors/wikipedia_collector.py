@@ -33,8 +33,7 @@ class WikipediaCollector(BaseCollector):
         kwargs supporta: lang (str, default "it") — lingua preferita con fallback a "en".
         """
         lang: str = str(kwargs.get("lang", "it"))
-        """
-        """
+        
         languages = [lang] if lang == "en" else [lang, "en"]
 
         for language in languages:

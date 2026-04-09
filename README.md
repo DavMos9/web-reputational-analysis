@@ -81,7 +81,7 @@ IBM Cloud Pak for Data
 
 - Python 3.11+
 - pip
-- Dipendenze principali: `requests`, `python-dotenv`, `python-dateutil`, `pandas`, `wikipedia-api`, `praw`, `tenacity`
+- Dipendenze principali: `requests`, `python-dotenv`, `python-dateutil`, `wikipedia-api`
 
 Tutte le dipendenze sono elencate in `requirements.txt` e installate con un singolo comando.
 
