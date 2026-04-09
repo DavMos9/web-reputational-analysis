@@ -57,7 +57,7 @@ Input (target + queries)
   Collectors (API)
         │
         ▼
-  Persistenza raw
+  Persistenza raw  →  data/raw/
         │
         ▼
    Normalizer
@@ -69,10 +69,7 @@ Input (target + queries)
   Deduplicator
         │
         ▼
-   Validator
-        │
-        ▼
-   Exporters (JSON + CSV)
+   Exporters (JSON + CSV)  →  data/final/
         │
         ▼
 IBM Cloud Pak for Data
@@ -84,7 +81,7 @@ IBM Cloud Pak for Data
 
 - Python 3.11+
 - pip
-- Dipendenze principali: `requests`, `python-dotenv`, `python-dateutil`, `pandas`, `wikipedia-api`, `praw`
+- Dipendenze principali: `requests`, `python-dotenv`, `python-dateutil`, `pandas`, `wikipedia-api`, `praw`, `tenacity`
 
 Tutte le dipendenze sono elencate in `requirements.txt` e installate con un singolo comando.
 
@@ -140,20 +137,15 @@ python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni"
 Output atteso:
 
 ```
-2026-04-08T18:12:18 [INFO] === Avvio pipeline ===
-2026-04-08T18:12:18 [INFO] Target:  Giorgia Meloni
-2026-04-08T18:12:18 [INFO] Fonti:   ['news', 'gdelt', 'wikipedia', 'youtube', 'guardian', 'nyt']
-[NewsAPI] Raccolti 20 articoli per query: 'Giorgia Meloni'
-[GDELT] Raccolti 20 articoli per query: 'Giorgia Meloni'
-[Wikipedia] Pagina trovata: 'Giorgia Meloni' (lingua: it)
-[YouTube] Raccolti 20 video per query: 'Giorgia Meloni'
-[Guardian] Raccolti 20 articoli per query: 'Giorgia Meloni'
-[NYT] Raccolti 10 articoli per query: 'Giorgia Meloni'
-2026-04-08T18:12:32 [INFO] Deduplicazione: 0 duplicati rimossi, 91 record unici
-2026-04-08T18:12:32 [INFO] Record finali validi: 91
-2026-04-08T18:12:32 [INFO] === Pipeline completata ===
-
-Risultato: 91 record finali esportati in data/final/
+2026-04-08T18:12:18 [INFO] === Pipeline avviata: target='Giorgia Meloni', fonti=[...] ===
+[news] Raccolti 20 record per query: 'Giorgia Meloni'
+[gdelt] Raccolti 20 record per query: 'Giorgia Meloni'
+[wikipedia] Raccolti 1 record per query: 'Giorgia Meloni'
+[youtube] Raccolti 20 record per query: 'Giorgia Meloni'
+[guardian] Raccolti 20 record per query: 'Giorgia Meloni'
+[nyt] Raccolti 10 record per query: 'Giorgia Meloni'
+2026-04-08T18:12:32 [INFO] Deduplicati: 0 rimossi, 91 record unici.
+2026-04-08T18:12:32 [INFO] === Pipeline completata: 91 record finali. ===
 ```
 
 ### Query multiple
@@ -185,7 +177,7 @@ I file vengono salvati in:
 ```
 data/
 ├── raw/        # Payload grezzi per debug e audit
-├── processed/  # Record normalizzati e puliti
+├── processed/  # Record normalizzati e puliti (snapshot intermedio)
 └── final/      # Dataset finale (JSON + CSV)
 ```
 
@@ -193,34 +185,32 @@ data/
 
 ## Schema dati
 
-Ogni record rispetta il seguente schema unificato:
+Ogni record rispetta il seguente schema unificato, definito in `models/record.py`:
 
 ```json
 {
-  "source_type": "news",
-  "source_name": "NewsAPI",
-  "target_entity": "Giorgia Meloni",
-  "query": "Giorgia Meloni",
-  "title": "Titolo articolo",
-  "snippet": "Estratto...",
-  "content": "Testo completo se disponibile",
-  "url": "https://example.com/article",
-  "domain": "example.com",
-  "author": "Nome Autore",
-  "published_at": "2026-04-08T10:00:00+00:00",
+  "source":       "news",
+  "query":        "Giorgia Meloni",
+  "target":       "Giorgia Meloni",
+  "title":        "Titolo articolo",
+  "text":         "Corpo del testo o estratto",
+  "date":         "2026-04-08",
+  "url":          "https://example.com/article",
+  "author":       "Nome Autore",
+  "language":     "it",
+  "domain":       "example.com",
   "retrieved_at": "2026-04-08T16:12:18+00:00",
-  "language": "it",
-  "country": "IT",
-  "rank": null,
-  "views_count": null,
-  "likes_count": null,
+  "views_count":  null,
+  "likes_count":  null,
   "comments_count": null,
-  "engagement_score": null,
-  "keywords_found": [],
-  "sentiment_stub": null,
-  "raw_payload": {}
+  "sentiment":    null
 }
 ```
+
+**Campi obbligatori:** `source`, `query`, `target`, `title`, `text`, `url`  
+**Campi opzionali:** tutti gli altri (`null` se non disponibili)  
+**Date:** formato `YYYY-MM-DD` (solo data, no orario)  
+**`raw_payload`:** presente nel modello interno, escluso dall'export finale
 
 Per la specifica completa vedere [`docs/Web_Reputational_Analysis_Data_Contract.pdf`](docs/Web_Reputational_Analysis_Data_Contract.pdf).
 
@@ -230,12 +220,16 @@ Per la specifica completa vedere [`docs/Web_Reputational_Analysis_Data_Contract.
 
 ```
 web-reputational-analysis/
-├── main.py                  # Entry point e orchestrazione pipeline
+├── main.py                  # Entry point e orchestrazione CLI
 ├── config.py                # Caricamento variabili d'ambiente
 ├── requirements.txt
 ├── .env.example
 │
+├── models/                  # Tipi di dato della pipeline
+│   └── record.py            # RawRecord (grezzo) e Record (normalizzato)
+│
 ├── collectors/              # Un file per ogni fonte dati
+│   ├── base.py              # Classe base astratta (BaseCollector)
 │   ├── news_collector.py
 │   ├── gdelt_collector.py
 │   ├── wikipedia_collector.py
@@ -243,23 +237,31 @@ web-reputational-analysis/
 │   ├── guardian_collector.py
 │   └── nyt_collector.py
 │
-├── processors/              # Trasformazione dei dati
-│   ├── normalizer.py        # Date ISO 8601, URL, domini
+├── pipeline/                # Passi di trasformazione
+│   ├── runner.py            # PipelineRunner — orchestratore
+│   ├── normalizer.py        # RawRecord → Record (date YYYY-MM-DD, URL, domini)
 │   ├── cleaner.py           # Pulizia stringhe e null
-│   ├── deduplicator.py      # Rimozione duplicati (URL + titolo+dominio)
-│   └── validator.py         # Verifica campi obbligatori
+│   └── deduplicator.py      # Rimozione duplicati (URL + titolo+dominio)
 │
-├── exporters/               # Export dedicato (JSON Lines, Parquet) — previsto
-├── utils/                   # Logger centralizzato e helper date — previsto
+├── storage/                 # Persistenza
+│   └── raw_store.py         # Salvataggio RawRecord grezzi in data/raw/
+│
+├── exporters/               # Export finale
+│   ├── json_exporter.py     # Serializzazione JSON
+│   └── csv_exporter.py      # Serializzazione CSV
+│
+├── utils/                   # Utility condivise
+│   └── slugify.py           # target_slug() e now_timestamp()
 │
 ├── data/
 │   ├── raw/                 # Payload grezzi
-│   ├── processed/           # Record normalizzati
+│   ├── processed/           # Record normalizzati (snapshot intermedio)
 │   └── final/               # Output finale
 │
-├── tests/                   # Test unitari — previsti
-├── wiki/                    # Sorgenti pagine GitHub Wiki
-└── docs/                    # Documentazione PDF
+└── tests/                   # Test unitari
+    ├── test_collector.py
+    ├── test_normalizer.py
+    └── test_deduplicator.py
 ```
 
 ---
