@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: web-reputational-analysis
+Version: 0.1.0
+Summary: Pipeline per la raccolta, normalizzazione ed esportazione di dati da fonti web per web reputational analysis.
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: requests>=2.28
+Requires-Dist: python-dateutil>=2.8
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: Wikipedia-API>=0.7
+Provides-Extra: nlp
+Requires-Dist: langdetect>=1.0.9; extra == "nlp"
+Requires-Dist: transformers>=4.35.0; extra == "nlp"
+Requires-Dist: torch>=2.0.0; extra == "nlp"
+Requires-Dist: sentencepiece>=0.1.99; extra == "nlp"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Dynamic: license-file

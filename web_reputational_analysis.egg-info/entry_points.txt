@@ -1,0 +1,2 @@
+[console_scripts]
+wra = main:main

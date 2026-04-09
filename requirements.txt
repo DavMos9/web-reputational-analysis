@@ -1,7 +1,31 @@
+# Core runtime dependencies
+# Corrispondono a [project.dependencies] in pyproject.toml
 requests>=2.28
 python-dateutil>=2.8
 python-dotenv>=1.0
 Wikipedia-API>=0.7
 
-# dev / test
+# NLP — enrichment step (language detection + sentiment analysis multilingue)
+# Corrispondono a [project.optional-dependencies.nlp] in pyproject.toml
+# Installare con: pip install ".[nlp]"  oppure  pip install -r requirements.txt
+#
+# langdetect: rilevamento lingua per ~55 lingue (leggero, ~1 MB)
+langdetect>=1.0.9
+# transformers + torch: sentiment analysis via XLM-RoBERTa multilingue
+# Il modello (~1.1 GB) viene scaricato da HuggingFace alla prima esecuzione.
+# Per installare la versione CPU-only di torch (consigliata se non si ha GPU):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.35.0
+torch>=2.0.0
+# sentencepiece: backend tokenizer per XLM-RoBERTa (modelli SentencePiece)
+sentencepiece>=0.1.99
+# protobuf: richiesto da sentencepiece per leggere i file .bpe.model
+# (formato Protocol Buffer); senza di esso sentencepiece non riesce a caricare il tokenizer
+protobuf>=3.20.0
+# tiktoken: fallback tokenizer usato da HuggingFace tokenizers quando
+# sentencepiece/protobuf non sono disponibili o falliscono
+tiktoken>=0.5.0
+
+# Development / test
+# Corrisponde a [project.optional-dependencies.dev] in pyproject.toml
 pytest>=8.0

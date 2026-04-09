@@ -11,14 +11,30 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Enrichment NLP: language detection + sentiment analysis multilingue.
+# Installare con: pip install ".[nlp]"
+# Nota: torch richiede ~200 MB (CPU-only). Il modello XLM-RoBERTa viene
+# scaricato automaticamente da HuggingFace alla prima esecuzione (~1.1 GB).
+nlp = [
+    "langdetect>=1.0.9",
+    "transformers>=4.35.0",
+    "torch>=2.0.0",
+    "sentencepiece>=0.1.99",
+    "protobuf>=3.20.0",
+    "tiktoken>=0.5.0",
+]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
 wra = "main:main"
 
+[tool.setuptools.packages.find]
+# Esclude directory non-package: data/ (storage file), tests/, docs/
+exclude = ["data*", "tests*", "docs*"]
+
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 # Aggiunge la root del progetto a sys.path: evita sys.path.insert in main.py
