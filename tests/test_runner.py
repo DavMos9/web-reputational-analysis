@@ -1,0 +1,231 @@
+"""
+tests/test_runner.py
+
+Test per pipeline/runner.py (PipelineRunner e PipelineConfig).
+
+Copertura:
+- PipelineConfig: validazione dei campi obbligatori
+- PipelineRunner.run(): lista vuota se nessun collector produce record
+- PipelineRunner.run(): scarta sorgenti non nel registry con warning
+- PipelineRunner.run(): collector che solleva eccezione non blocca la pipeline
+- PipelineRunner.run(): flusso normale — record normalizzati, puliti, deduplicati
+- PipelineRunner.run(): save_raw=True invoca raw_store.save()
+- PipelineRunner.run(): save_raw=False non invoca raw_store.save()
+- PipelineRunner.run(): exporter viene chiamato con i record finali
+- PipelineRunner.run(): errore dell'exporter non blocca la pipeline
+- PipelineRunner.run(): deduplicazione applicata correttamente
+"""
+
+from __future__ import annotations
+
+import pytest
+from unittest.mock import MagicMock, patch, call
+
+from models import RawRecord, Record
+from pipeline.runner import PipelineRunner, PipelineConfig
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _raw(source: str = "news", url: str = "https://example.com/1") -> RawRecord:
+    return RawRecord(
+        source=source,
+        query="test query",
+        target="Test Target",
+        payload={
+            "title": "Test Article",
+            "url": url,
+            "description": "Test description.",
+            "publishedAt": "2026-04-08T10:00:00Z",
+        },
+        retrieved_at="2026-04-08T10:00:00+00:00",
+    )
+
+
+def _make_collector(source_id: str, returns: list[RawRecord]) -> MagicMock:
+    """Crea un mock collector che restituisce `returns` quando collect() è chiamato."""
+    collector = MagicMock()
+    collector.source_id = source_id
+    collector.collect.return_value = returns
+    return collector
+
+
+def _config(**overrides) -> PipelineConfig:
+    defaults = dict(
+        target="Test Target",
+        queries=["test query"],
+        sources=[],
+        max_results=20,
+        save_raw=False,
+    )
+    defaults.update(overrides)
+    return PipelineConfig(**defaults)
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineConfig — validazione
+# ---------------------------------------------------------------------------
+
+class TestPipelineConfig:
+    def test_empty_target_raises(self):
+        with pytest.raises(ValueError, match="target"):
+            PipelineConfig(target="", queries=["q"])
+
+    def test_empty_queries_raises(self):
+        with pytest.raises(ValueError, match="queries"):
+            PipelineConfig(target="T", queries=[])
+
+    def test_max_results_zero_raises(self):
+        with pytest.raises(ValueError, match="max_results"):
+            PipelineConfig(target="T", queries=["q"], max_results=0)
+
+    def test_valid_config(self):
+        cfg = _config(target="Elon Musk", queries=["Elon Musk Tesla"])
+        assert cfg.target == "Elon Musk"
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineRunner.run() — raccolta e orchestrazione
+# ---------------------------------------------------------------------------
+
+class TestPipelineRunnerRun:
+
+    def test_no_records_collected_returns_empty(self):
+        """Nessun record prodotto → pipeline restituisce lista vuota."""
+        collector = _make_collector("news", returns=[])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+        result = runner.run(_config(sources=["news"]))
+        assert result == []
+
+    def test_unknown_source_skipped(self):
+        """Sorgente non nel registry viene ignorata senza eccezione."""
+        registry = {"news": _make_collector("news", returns=[])}
+        runner = PipelineRunner(registry=registry)
+        # "gdelt" non esiste nel registry
+        result = runner.run(_config(sources=["gdelt"]))
+        assert result == []
+
+    def test_collector_exception_does_not_crash_pipeline(self):
+        """Collector che solleva eccezione non interrompe l'esecuzione."""
+        bad_collector = MagicMock()
+        bad_collector.source_id = "news"
+        bad_collector.collect.side_effect = RuntimeError("API down")
+
+        good_collector = _make_collector("gdelt", returns=[_raw("gdelt")])
+        registry = {"news": bad_collector, "gdelt": good_collector}
+
+        runner = PipelineRunner(registry=registry)
+        result = runner.run(_config(sources=["news", "gdelt"]))
+        # I record del collector funzionante devono passare
+        assert len(result) >= 1
+
+    def test_normal_flow_returns_records(self):
+        """Flusso normale: collector produce record → pipeline li restituisce normalizzati."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+        result = runner.run(_config(sources=["news"]))
+        assert len(result) == 1
+        assert isinstance(result[0], Record)
+        assert result[0].source == "news"
+
+    def test_multiple_queries_called_for_each_query(self):
+        """collect() viene chiamato una volta per ogni query."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+
+        runner.run(_config(sources=["news"], queries=["q1", "q2"]))
+
+        assert collector.collect.call_count == 2
+
+    def test_deduplication_applied(self):
+        """Record con lo stesso URL vengono deduplicati."""
+        raw1 = _raw("news", url="https://example.com/same")
+        raw2 = _raw("news", url="https://example.com/same")  # duplicato
+        collector = _make_collector("news", returns=[raw1, raw2])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry)
+        result = runner.run(_config(sources=["news"]))
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineRunner — raw_store
+# ---------------------------------------------------------------------------
+
+class TestPipelineRunnerRawStore:
+
+    def test_save_raw_true_calls_raw_store(self):
+        """save_raw=True → raw_store.save() chiamato con i RawRecord."""
+        raw_store = MagicMock()
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry, raw_store=raw_store)
+        runner.run(_config(sources=["news"], save_raw=True), timestamp="20260409T000000Z")
+
+        raw_store.save.assert_called_once()
+
+    def test_save_raw_false_does_not_call_raw_store(self):
+        """save_raw=False → raw_store.save() non viene chiamato."""
+        raw_store = MagicMock()
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry, raw_store=raw_store)
+        runner.run(_config(sources=["news"], save_raw=False))
+
+        raw_store.save.assert_not_called()
+
+    def test_raw_store_error_does_not_crash_pipeline(self):
+        """Errore nel salvataggio raw non interrompe la pipeline."""
+        raw_store = MagicMock()
+        raw_store.save.side_effect = OSError("Disk full")
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry, raw_store=raw_store)
+        result = runner.run(_config(sources=["news"], save_raw=True))
+
+        # La pipeline deve continuare e restituire i record
+        assert len(result) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineRunner — exporters
+# ---------------------------------------------------------------------------
+
+class TestPipelineRunnerExporters:
+
+    def test_exporter_called_with_final_records(self):
+        """exporter.export() viene chiamato con i Record finali."""
+        exporter = MagicMock()
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry, exporters=[exporter])
+        runner.run(_config(sources=["news"]), timestamp="20260409T000000Z")
+
+        exporter.export.assert_called_once()
+        args = exporter.export.call_args
+        records_arg = args[0][0] if args[0] else args[1].get("records", [])
+        assert len(records_arg) >= 1
+        assert isinstance(records_arg[0], Record)
+
+    def test_exporter_error_does_not_crash_pipeline(self):
+        """Errore nell'exporter non blocca la pipeline."""
+        exporter = MagicMock()
+        exporter.export.side_effect = OSError("Disk full")
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+
+        runner = PipelineRunner(registry=registry, exporters=[exporter])
+        result = runner.run(_config(sources=["news"]))
+
+        # runner deve restituire i record anche se l'exporter ha fallito
+        assert len(result) >= 1

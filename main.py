@@ -12,11 +12,7 @@ Esempi:
 
 import argparse
 import logging
-import sys
 from pathlib import Path
-
-# Root del progetto nel path per import assoluti
-sys.path.insert(0, str(Path(__file__).parent))
 
 from collectors import build_registry
 from exporters import JsonExporter, CsvExporter
