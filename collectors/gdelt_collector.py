@@ -12,6 +12,7 @@ Il metodo _request_with_retry gestisce entrambi i casi con retry differenziato:
 """
 
 import logging
+import re
 import time
 
 import requests
@@ -23,9 +24,41 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
-_REQUEST_DELAY = 2.0   # secondi di pausa minima prima di ogni chiamata
-_MAX_RETRIES   = 3
-_BODY_PREVIEW  = 300   # caratteri di anteprima del body nei log di errore
+_REQUEST_DELAY  = 3.0   # secondi di pausa minima prima di ogni chiamata (aumentato per rate limit)
+_MAX_RETRIES    = 3
+_BODY_PREVIEW   = 300   # caratteri di anteprima del body nei log di errore
+_MIN_TOKEN_LEN  = 3     # token GDELT devono avere almeno questo numero di caratteri
+
+
+def _sanitize_gdelt_query(query: str) -> str:
+    """
+    Sanitizza la query per GDELT DOC 2.0.
+
+    GDELT restituisce "keyword too short" se la query contiene token di
+    lunghezza < 3 (articoli, preposizioni, ecc.). Questa funzione:
+    1. Rimuove i token troppo corti.
+    2. Se il risultato è vuoto (tutti i token erano corti), restituisce
+       la query originale racchiusa tra virgolette come frase esatta.
+
+    Args:
+        query: stringa di ricerca grezza.
+
+    Returns:
+        Query sanitizzata pronta per GDELT.
+    """
+    tokens = query.strip().split()
+    valid_tokens = [t for t in tokens if len(re.sub(r'[^\w]', '', t)) >= _MIN_TOKEN_LEN]
+
+    if valid_tokens:
+        sanitized = " ".join(valid_tokens)
+    else:
+        # Fallback: frase esatta tra virgolette (GDELT supporta quoted phrases)
+        sanitized = f'"{query.strip()}"'
+
+    if sanitized != query:
+        log.debug("[gdelt] Query sanitizzata: '%s' → '%s'", query, sanitized)
+
+    return sanitized
 
 
 class GdeltCollector(BaseCollector):
@@ -38,8 +71,10 @@ class GdeltCollector(BaseCollector):
             query:       stringa di ricerca.
             max_results: numero massimo di risultati (max 250).
         """
+        sanitized_query = _sanitize_gdelt_query(query)
+
         params = {
-            "query":      query,
+            "query":      sanitized_query,
             "mode":       "artlist",
             "maxrecords": min(max_results, 250),
             "format":     "json",
@@ -50,9 +85,17 @@ class GdeltCollector(BaseCollector):
         if data is None:
             return []
 
+        articles = data.get("articles", [])
+        if not isinstance(articles, list):
+            log.warning(
+                "[%s] Campo 'articles' inatteso (tipo: %s). Query: '%s'",
+                self.source_id, type(articles).__name__, query,
+            )
+            return []
+
         records = [
             self._make_raw(target, query, article)
-            for article in data.get("articles", [])
+            for article in articles
             if article.get("url")
         ]
 
@@ -84,7 +127,7 @@ class GdeltCollector(BaseCollector):
 
                 # --- Rate limit: retry con backoff esponenziale ---
                 if response.status_code == 429:
-                    wait = _REQUEST_DELAY * (2 ** attempt)
+                    wait = _REQUEST_DELAY * (2 ** attempt)  # 6s, 12s, 24s
                     self._log_skip(
                         f"rate limit (429), attendo {wait:.0f}s "
                         f"(tentativo {attempt}/{_MAX_RETRIES})"

@@ -31,9 +31,16 @@ class WikipediaCollector(BaseCollector):
         """
         max_results è ignorato: Wikipedia restituisce sempre 1 pagina per target.
         kwargs supporta: lang (str, default "it") — lingua preferita con fallback a "en".
+
+        Nota sul parametro `query`:
+            Wikipedia opera su entità enciclopediche, non su query tematiche.
+            La ricerca viene effettuata usando `target` (es. "Elon Musk"),
+            non `query` (es. "Elon Musk Tesla controversie"). Il parametro
+            `query` è ricevuto per rispettare l'interfaccia BaseCollector
+            ed è usato solo per i log (tracciabilità dei RawRecord).
         """
         lang: str = str(kwargs.get("lang", "it"))
-        
+
         languages = [lang] if lang == "en" else [lang, "en"]
 
         for language in languages:
@@ -74,11 +81,16 @@ class WikipediaCollector(BaseCollector):
 
     # ------------------------------------------------------------------
 
-    def _opensearch(self, query: str, lang: str) -> str | None:
-        """Restituisce il titolo della pagina Wikipedia più rilevante per la query."""
+    def _opensearch(self, target: str, lang: str) -> str | None:
+        """
+        Restituisce il titolo della pagina Wikipedia più rilevante per il target.
+
+        Il parametro si chiama `target` (non `query`) per chiarire che la
+        ricerca è sull'entità principale, non su un tema libero.
+        """
         params = {
             "action":    "opensearch",
-            "search":    query,
+            "search":    target,
             "limit":     1,
             "namespace": 0,
             "format":    "json",
@@ -95,7 +107,7 @@ class WikipediaCollector(BaseCollector):
             titles = data[1] if len(data) > 1 else []
             return titles[0] if titles else None
         except Exception as e:
-            self._log_error(query, e)
+            self._log_error(target, e)
             return None
 
     def reset_cache(self) -> None:

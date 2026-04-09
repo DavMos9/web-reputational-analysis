@@ -7,17 +7,30 @@ __pycache__/
 # Virtual env
 venv/
 .venv/
+env/
 
 # Environment files
 .env
 .env.*
-env/
 
 # API keys / local config
 config_local.py
 
+# Build / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Test / coverage cache
+.pytest_cache/
+.coverage
+htmlcov/
+
 # OS
 .DS_Store
+__MACOSX/
+Thumbs.db
 
 # Logs
 *.log
@@ -34,5 +47,5 @@ data/final/*
 # Jupyter
 .ipynb_checkpoints/
 
-#vscode
+# VSCode
 .vscode/

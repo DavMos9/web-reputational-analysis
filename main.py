@@ -64,6 +64,14 @@ def parse_args() -> argparse.Namespace:
         "--no-raw", action="store_true",
         help="Non salvare i payload grezzi in data/raw/",
     )
+    parser.add_argument(
+        "--news-language", default="en", metavar="LANG",
+        help=(
+            "Codice lingua ISO 639-1 per NewsAPI (default: 'en'). "
+            "Esempi: 'it', 'fr', 'de'. Attenzione: NewsAPI supporta un "
+            "sottoinsieme limitato di lingue nel piano gratuito."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -80,6 +88,9 @@ def main() -> None:
         sources=args.sources,
         max_results=args.max_results,
         save_raw=not args.no_raw,
+        collector_kwargs={
+            "news": {"language": args.news_language},
+        },
     )
 
     runner = PipelineRunner(

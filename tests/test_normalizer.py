@@ -238,7 +238,9 @@ class TestNormalizeGuardian:
         assert record is not None
         assert record.title == "Guardian Headline"
         assert record.author == "Jane Smith"
-        assert record.language == "en"
+        # Guardian API non espone un campo lingua nel payload standard.
+        # La language detection è responsabilità dell'enricher (step successivo).
+        assert record.language is None
 
     def test_missing_url_returns_none(self):
         raw = _raw("guardian", {"fields": {"headline": "No URL"}})

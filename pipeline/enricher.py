@@ -44,7 +44,9 @@ log = logging.getLogger(__name__)
 
 # Soglie di lunghezza testo per operazioni NLP affidabili (in caratteri).
 # Sotto queste soglie i risultati sono inaffidabili e vengono scartati.
-_MIN_LEN_DETECT: int = 25
+# _MIN_LEN_DETECT abbassato a 15: title + text di record brevi (GDELT, NYT abstract)
+# hanno spesso 15-25 chars. La soglia 25 scartava troppi record con solo titolo.
+_MIN_LEN_DETECT: int = 15
 _MIN_LEN_SENTIMENT: int = 15
 
 # Modello HuggingFace per sentiment analysis multilingue.
@@ -152,12 +154,29 @@ def _normalize_language_code(raw_lang: str | None) -> str | None:
 # Language detection
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Inizializzazione langdetect (seed deterministico, eseguita una sola volta)
+# ---------------------------------------------------------------------------
+
+# DetectorFactory.seed viene impostato a livello modulo per due motivi:
+# 1. Garantisce determinismo (stessa stringa → stesso risultato) su tutte le chiamate.
+# 2. Evita di reimpostarlo ad ogni invocazione di detect_language (operazione ridondante).
+# L'import è lazy: se langdetect non è installato, il blocco viene saltato silenziosamente
+# e detect_language gestirà ImportError nella propria chiamata.
+try:
+    from langdetect import DetectorFactory as _DetectorFactory
+    _DetectorFactory.seed = 0
+    del _DetectorFactory  # rimuove dalla namespace del modulo (import non esportato)
+except ImportError:
+    pass  # langdetect non installato — detect_language restituirà None con warning
+
+
 def detect_language(text: str) -> str | None:
     """
     Rileva la lingua del testo con langdetect.
 
-    Utilizza seed deterministico (DetectorFactory.seed = 0) per garantire
-    risultati riproducibili tra esecuzioni diverse.
+    Il seed deterministico (DetectorFactory.seed = 0) è impostato a livello
+    modulo: stessa stringa → stesso risultato in qualsiasi esecuzione.
 
     Args:
         text: testo su cui eseguire il rilevamento.
@@ -171,10 +190,8 @@ def detect_language(text: str) -> str | None:
         return None
 
     try:
-        from langdetect import DetectorFactory, detect
-        from langdetect.lang_detect_exception import LangDetectException
+        from langdetect import detect
 
-        DetectorFactory.seed = 0  # Determinismo: stessa stringa → stesso risultato
         raw = detect(text)
         return _normalize_language_code(raw)
 

@@ -54,18 +54,22 @@ class PipelineConfig:
     Parametri di esecuzione della pipeline.
 
     Attributi:
-        target:      entità da analizzare (es. "Elon Musk").
-        queries:     lista di query di ricerca.
-        sources:     lista di source_id da interrogare
-                     (es. ["news", "gdelt"]). Se vuota usa tutte le sorgenti.
-        max_results: numero massimo di risultati per collector per query.
-        save_raw:    se True, invoca raw_store.save() dopo la raccolta.
+        target:           entità da analizzare (es. "Elon Musk").
+        queries:          lista di query di ricerca.
+        sources:          lista di source_id da interrogare
+                          (es. ["news", "gdelt"]). Se vuota usa tutte le sorgenti.
+        max_results:      numero massimo di risultati per collector per query.
+        save_raw:         se True, invoca raw_store.save() dopo la raccolta.
+        collector_kwargs: kwargs aggiuntivi per collector specifici, indicizzati
+                          per source_id. Es: {"news": {"language": "it"}}.
+                          Vengono passati a collector.collect() come **kwargs.
     """
     target: str
     queries: list[str]
-    sources: list[str]         = field(default_factory=list)
-    max_results: int           = 20
-    save_raw: bool             = True
+    sources: list[str]              = field(default_factory=list)
+    max_results: int                = 20
+    save_raw: bool                  = True
+    collector_kwargs: dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.target:
@@ -185,6 +189,8 @@ class PipelineRunner:
                 log.warning("Sorgente '%s' non trovata nel registry, ignorata.", source_id)
                 continue
 
+            extra_kwargs = config.collector_kwargs.get(source_id, {})
+
             for query in config.queries:
                 log.info("Raccolta da '%s' per query: '%s'", source_id, query)
                 try:
@@ -192,6 +198,7 @@ class PipelineRunner:
                         target=config.target,
                         query=query,
                         max_results=config.max_results,
+                        **extra_kwargs,
                     )
                     all_raws.extend(raws)
                 except Exception as e:
