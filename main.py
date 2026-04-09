@@ -29,6 +29,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
+# Silenzia logger di terze parti rumorosi a INFO (wikipediaapi, httpx);
+# WARNING+ rimane visibile per non perdere errori reali.
+logging.getLogger("wikipediaapi").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------

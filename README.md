@@ -118,7 +118,7 @@ pip install -e ".[nlp]"
 
 ## Configurazione
 
-Copia il file di esempio e inserisci le tue API key:
+Copia il file di esempio e inserisci le tue chiavi:
 
 ```bash
 cp .env.example .env
@@ -127,13 +127,19 @@ cp .env.example .env
 Modifica `.env`:
 
 ```env
+# API key delle fonti dati (obbligatorie per le rispettive fonti)
 YOUTUBE_API_KEY=la_tua_chiave
 NEWS_API_KEY=la_tua_chiave
 GUARDIAN_API_KEY=la_tua_chiave
 NYT_API_KEY=la_tua_chiave
+
+# HuggingFace token (opzionale, consigliato per l'enrichment NLP)
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
 ```
 
 Le fonti senza API key (GDELT, Wikipedia) funzionano senza configurazione aggiuntiva.
+
+**`HF_TOKEN`** — opzionale ma consigliato se si usa l'enrichment NLP. Senza token, HuggingFace applica un rate limit ridotto durante il download del modello XLM-RoBERTa e logga un warning sulle richieste non autenticate. Con il token il download è più stabile e il warning sparisce. Il token va creato su [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (tipo **Read**, piano gratuito sufficiente). Non serve per eseguire la pipeline se il modello è già stato scaricato e cachato localmente.
 
 ---
 

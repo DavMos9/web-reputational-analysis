@@ -10,7 +10,7 @@ Motivazione del posizionamento:
     - Dopo deduplicate: evita NLP su record duplicati (operazioni costose).
     - Prima di export: i campi language e sentiment vengono inclusi nell'output finale.
 
-Dipendenze NLP (installare via requirements.txt):
+Dipendenze NLP (installare con `pip install -e ".[nlp]"`):
     langdetect >= 1.0.9
         Rilevamento lingua per ~55 lingue. Leggero, deterministico con seed fisso.
     transformers >= 4.35 + torch >= 2.0
@@ -154,29 +154,19 @@ def _normalize_language_code(raw_lang: str | None) -> str | None:
 # Language detection
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Inizializzazione langdetect (seed deterministico, eseguita una sola volta)
-# ---------------------------------------------------------------------------
-
-# DetectorFactory.seed viene impostato a livello modulo per due motivi:
-# 1. Garantisce determinismo (stessa stringa → stesso risultato) su tutte le chiamate.
-# 2. Evita di reimpostarlo ad ogni invocazione di detect_language (operazione ridondante).
-# L'import è lazy: se langdetect non è installato, il blocco viene saltato silenziosamente
-# e detect_language gestirà ImportError nella propria chiamata.
+# Seed deterministico: stessa stringa → stesso risultato su ogni esecuzione.
+# Import lazy: se langdetect non è installato, detect_language restituirà None.
 try:
     from langdetect import DetectorFactory as _DetectorFactory
     _DetectorFactory.seed = 0
-    del _DetectorFactory  # rimuove dalla namespace del modulo (import non esportato)
+    del _DetectorFactory
 except ImportError:
-    pass  # langdetect non installato — detect_language restituirà None con warning
+    pass
 
 
 def detect_language(text: str) -> str | None:
     """
     Rileva la lingua del testo con langdetect.
-
-    Il seed deterministico (DetectorFactory.seed = 0) è impostato a livello
-    modulo: stessa stringa → stesso risultato in qualsiasi esecuzione.
 
     Args:
         text: testo su cui eseguire il rilevamento.
@@ -241,7 +231,7 @@ def resolve_language(record: Record, analysis_text: str) -> str | None:
 # Sentiment analysis — singleton lazy del modello
 # ---------------------------------------------------------------------------
 
-# Stato del singleton: None = non caricato, False = tentativo fallito, pipeline = caricato
+# Singleton del modello: caricato al primo utilizzo, mai ricaricato.
 _sentiment_pipeline: Any = None
 _sentiment_pipeline_initialized: bool = False
 
@@ -268,7 +258,14 @@ def _get_sentiment_pipeline() -> Any | None:
     _sentiment_pipeline_initialized = True
 
     try:
+        import logging as _logging
         from transformers import pipeline as hf_pipeline
+
+        # XLM-RoBERTa emette un LOAD REPORT benigno su `position_ids`; lo sopprimo
+        # durante il caricamento e ripristino il livello originale dopo.
+        _modeling_logger = _logging.getLogger("transformers.modeling_utils")
+        _prev_level = _modeling_logger.level
+        _modeling_logger.setLevel(_logging.ERROR)
 
         log.info(
             "Caricamento modello sentiment '%s' (primo utilizzo)...",
@@ -281,6 +278,8 @@ def _get_sentiment_pipeline() -> Any | None:
             truncation=True,
             max_length=512,  # Limite token del modello; testi più lunghi vengono troncati
         )
+
+        _modeling_logger.setLevel(_prev_level)
         log.info("Modello sentiment caricato correttamente.")
 
     except ImportError:
@@ -361,7 +360,7 @@ def analyze_sentiment(text: str, language: str | None) -> float | None:
 
         # Clamping difensivo per compensare floating point imprecision
         score = max(-1.0, min(1.0, positive - negative))
-        return round(score, 6)  # 6 cifre decimali sufficienti per analisi reputazionale
+        return round(score, 6)  # 6 cifre decimali
 
     except Exception as exc:
         log.error("Errore durante l'inferenza del sentiment: %s", exc)

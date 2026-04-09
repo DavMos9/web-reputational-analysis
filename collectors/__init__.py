@@ -31,7 +31,6 @@ def build_registry() -> dict[str, "BaseCollector"]:
     ``import collectors`` o ``from collectors.base import BaseCollector``
     non causerà l'import di tutti i collector e delle loro dipendenze.
     """
-    from collectors.base import BaseCollector          # noqa: F401
     from collectors.news_collector import NewsCollector
     from collectors.gdelt_collector import GdeltCollector
     from collectors.wikipedia_collector import WikipediaCollector

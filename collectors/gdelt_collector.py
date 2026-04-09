@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
-_REQUEST_DELAY  = 3.0   # secondi di pausa minima prima di ogni chiamata (aumentato per rate limit)
+_REQUEST_DELAY  = 3.0   # secondi di pausa minima tra chiamate consecutive
 _MAX_RETRIES    = 3
 _BODY_PREVIEW   = 300   # caratteri di anteprima del body nei log di errore
 _MIN_TOKEN_LEN  = 3     # token GDELT devono avere almeno questo numero di caratteri
@@ -32,19 +32,8 @@ _MIN_TOKEN_LEN  = 3     # token GDELT devono avere almeno questo numero di carat
 
 def _sanitize_gdelt_query(query: str) -> str:
     """
-    Sanitizza la query per GDELT DOC 2.0.
-
-    GDELT restituisce "keyword too short" se la query contiene token di
-    lunghezza < 3 (articoli, preposizioni, ecc.). Questa funzione:
-    1. Rimuove i token troppo corti.
-    2. Se il risultato è vuoto (tutti i token erano corti), restituisce
-       la query originale racchiusa tra virgolette come frase esatta.
-
-    Args:
-        query: stringa di ricerca grezza.
-
-    Returns:
-        Query sanitizzata pronta per GDELT.
+    Rimuove token con meno di 3 caratteri alfanumerici dalla query GDELT.
+    Se il risultato è vuoto, restituisce la query originale come frase esatta tra virgolette.
     """
     tokens = query.strip().split()
     valid_tokens = [t for t in tokens if len(re.sub(r'[^\w]', '', t)) >= _MIN_TOKEN_LEN]
@@ -183,8 +172,7 @@ class GdeltCollector(BaseCollector):
                     return None
 
             except ValueError as e:
-                # JSONDecodeError: body non è JSON valido nonostante Content-Type corretto.
-                # Non ha senso riprovare: il contenuto non cambierà.
+                # JSONDecodeError: body non è JSON valido — no retry.
                 log.error(
                     "[%s] JSON non valido nella risposta GDELT. "
                     "Content-Type: '%s'. Anteprima body: %r. Errore: %s. Query: '%s'",
