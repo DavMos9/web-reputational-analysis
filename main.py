@@ -18,7 +18,7 @@ from pathlib import Path
 # Root del progetto nel path per import assoluti
 sys.path.insert(0, str(Path(__file__).parent))
 
-from collectors import REGISTRY
+from collectors import build_registry
 from exporters import JsonExporter, CsvExporter
 from pipeline import PipelineRunner, PipelineConfig
 from storage import RawStore
@@ -36,8 +36,9 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------
-BASE_DIR     = Path(__file__).parent
-ALL_SOURCES  = list(REGISTRY.keys())
+BASE_DIR  = Path(__file__).parent
+REGISTRY  = build_registry()           # lazy: importa i collector solo qui
+ALL_SOURCES = list(REGISTRY.keys())
 
 
 # ---------------------------------------------------------------------------

@@ -254,7 +254,6 @@ web-reputational-analysis/
 │
 ├── data/
 │   ├── raw/                 # Payload grezzi
-│   ├── processed/           # Record normalizzati (snapshot intermedio)
 │   └── final/               # Output finale
 │
 └── tests/                   # Test unitari
