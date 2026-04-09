@@ -176,9 +176,8 @@ I file vengono salvati in:
 
 ```
 data/
-├── raw/        # Payload grezzi per debug e audit
-├── processed/  # Record normalizzati e puliti (snapshot intermedio)
-└── final/      # Dataset finale (JSON + CSV)
+├── raw/    # Payload grezzi per debug e audit
+└── final/  # Dataset finale (JSON + CSV)
 ```
 
 ---
