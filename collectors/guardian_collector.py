@@ -17,12 +17,12 @@ BASE_URL = "https://content.guardianapis.com/search"
 class GuardianCollector(BaseCollector):
     source_id = "guardian"
 
-    def collect(self, target: str, query: str, page_size: int = 20) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 20) -> list[RawRecord]:
         """
         Args:
-            target:    entità analizzata.
-            query:     stringa di ricerca.
-            page_size: numero massimo di risultati (max 200 per richiesta).
+            target:      entità analizzata.
+            query:       stringa di ricerca.
+            max_results: numero massimo di risultati (max 200 per richiesta).
         """
         if not GUARDIAN_API_KEY:
             self._log_skip("GUARDIAN_API_KEY non configurata")
@@ -31,7 +31,7 @@ class GuardianCollector(BaseCollector):
         params = {
             "q":           query,
             "api-key":     GUARDIAN_API_KEY,
-            "page-size":   min(page_size, 200),
+            "page-size":   min(max_results, 200),
             "order-by":    "relevance",
             "show-fields": "headline,trailText,bodyText,byline,shortUrl",
         }

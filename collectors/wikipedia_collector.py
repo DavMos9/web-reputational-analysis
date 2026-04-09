@@ -27,12 +27,13 @@ class WikipediaCollector(BaseCollector):
         # Cache per titoli già scaricati in questa istanza
         self._fetched: set[str] = set()
 
-    def collect(self, target: str, query: str, lang: str = "it") -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 1, **kwargs: object) -> list[RawRecord]:
         """
-        Args:
-            target: entità analizzata (usata per la ricerca su Wikipedia).
-            query:  query originale (inclusa nel RawRecord per tracciabilità).
-            lang:   lingua preferita ("it" o "en"). Fallback automatico su "en".
+        max_results è ignorato: Wikipedia restituisce sempre 1 pagina per target.
+        kwargs supporta: lang (str, default "it") — lingua preferita con fallback a "en".
+        """
+        lang: str = str(kwargs.get("lang", "it"))
+        """
         """
         languages = [lang] if lang == "en" else [lang, "en"]
 

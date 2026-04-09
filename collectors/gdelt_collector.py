@@ -22,17 +22,17 @@ _MAX_RETRIES   = 3
 class GdeltCollector(BaseCollector):
     source_id = "gdelt"
 
-    def collect(self, target: str, query: str, max_records: int = 75) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 75) -> list[RawRecord]:
         """
         Args:
             target:      entità analizzata.
             query:       stringa di ricerca.
-            max_records: numero massimo di risultati (max 250).
+            max_results: numero massimo di risultati (max 250).
         """
         params = {
             "query":      query,
             "mode":       "artlist",
-            "maxrecords": min(max_records, 250),
+            "maxrecords": min(max_results, 250),
             "format":     "json",
             "sort":       "datedesc",
         }

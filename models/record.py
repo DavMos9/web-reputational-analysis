@@ -10,14 +10,15 @@ Definisce i due tipi fondamentali della pipeline:
   Prodotto dal normalizer a partire da un RawRecord.
   È il tipo che attraversa cleaner, deduplicator ed exporter.
 
-Nessun modulo esterno al package models/ dovrebbe definire schemi dati alternativi.
+Nessun modulo esterno a models/ dovrebbe definire schemi dati alternativi.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Any
+from typing import Any, ClassVar
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -35,11 +36,10 @@ class RawRecord:
     senza trasformazioni. Il normalizer legge da qui.
 
     Attributi:
-        source      Identificatore della sorgente ("news", "gdelt", "youtube",
-                    "wikipedia", "guardian", "nyt").
-        query       Query di ricerca usata per raccogliere questo record.
-        target      Entità analizzata (es. "Elon Musk").
-        payload     Dizionario con la risposta raw dell'API. Immutabile.
+        source       Identificatore della sorgente ("news", "gdelt", "youtube", ecc.).
+        query        Query di ricerca usata per raccogliere questo record.
+        target       Entità analizzata (es. "Elon Musk").
+        payload      Dizionario con la risposta raw dell'API.
         retrieved_at Timestamp ISO 8601 del momento della raccolta.
     """
 
@@ -55,7 +55,9 @@ class RawRecord:
         if not self.target:
             raise ValueError("RawRecord.target non può essere vuoto")
         if not isinstance(self.payload, dict):
-            raise TypeError(f"RawRecord.payload deve essere un dict, ricevuto: {type(self.payload)}")
+            raise TypeError(
+                f"RawRecord.payload deve essere un dict, ricevuto: {type(self.payload)}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -70,58 +72,68 @@ class Record:
     Prodotto dal normalizer a partire da un RawRecord.
     Attraversa cleaner → deduplicator → exporter senza cambiare schema.
 
-    Campi canonici (allineati al data contract di progetto):
-        source      Sorgente normalizzata (es. "news", "youtube").
-        title       Titolo dell'articolo / video / pagina.
-        text        Corpo del testo (snippet o contenuto, scelto dal normalizer).
-        date        Data di pubblicazione in formato "YYYY-MM-DD". None se assente.
-        url         URL canonico del contenuto.
-        query       Query usata per raccogliere questo record.
-        target      Entità analizzata.
+    Campi canonici (obbligatori):
+        source   Sorgente normalizzata (es. "news", "youtube").
+        query    Query usata per raccogliere questo record.
+        target   Entità analizzata (es. "Elon Musk").
+        title    Titolo dell'articolo / video / pagina.
+        text     Corpo del testo (snippet o contenuto completo).
+        date     Data di pubblicazione "YYYY-MM-DD", None se assente.
+        url      URL canonico del contenuto.
 
-    Campi estesi (opzionali, preservano valore analitico):
-        author      Autore / canale.
-        language    Codice lingua ISO 639-1 (es. "it", "en").
-        domain      Dominio estratto dall'URL (es. "bbc.co.uk").
+    Campi estesi (opzionali — aggiungere qui i futuri arricchimenti):
+        author       Autore / canale.
+        language     Codice lingua ISO 639-1 (es. "it", "en").
+        domain       Dominio estratto dall'URL (es. "bbc.co.uk").
         retrieved_at Timestamp ISO 8601 della raccolta.
 
-    Metriche di engagement (solo sorgenti social/video):
+    Metriche di engagement (rilevanti solo per social/video):
         views_count, likes_count, comments_count
 
-    Metadati pipeline:
-        raw_payload Copia del payload grezzo per tracciabilità.
-                    NON viene incluso nell'export finale.
+    Analisi (opzionali, prodotti da step successivi):
+        sentiment    Score sentiment nel range [-1.0, 1.0]. None se non calcolato.
+
+    Metadati pipeline (non inclusi nell'export finale):
+        raw_payload  Copia del payload grezzo per tracciabilità e debug.
     """
 
     # --- Campi canonici (obbligatori) ---
     source: str
-    title: str
-    text: str
-    date: str | None          # "YYYY-MM-DD"
-    url: str
     query: str
     target: str
+    title: str
+    text: str
+    date: str | None        # "YYYY-MM-DD" oppure None
+    url: str
 
     # --- Campi estesi (opzionali) ---
-    author: str | None        = None
-    language: str | None      = None
-    domain: str               = ""
-    retrieved_at: str         = ""
+    author: str | None      = None
+    language: str | None    = None
+    domain: str             = ""
+    retrieved_at: str       = ""
 
     # --- Metriche engagement ---
-    views_count: int | None   = None
-    likes_count: int | None   = None
+    views_count: int | None    = None
+    likes_count: int | None    = None
     comments_count: int | None = None
+
+    # --- Analisi opzionali (prodotte da step successivi alla normalizzazione) ---
+    sentiment: float | None = None  # [-1.0, 1.0]; None = non ancora calcolato
 
     # --- Metadati pipeline (esclusi dall'export) ---
     raw_payload: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    # Campi che NON devono comparire nell'export finale
-    _EXPORT_EXCLUDE: frozenset[str] = field(
-        default=frozenset({"raw_payload"}),
-        init=False,
-        repr=False,
-        compare=False,
+    # Campi esclusi dall'export: dichiarati a livello di classe, non come field().
+    # In questo modo asdict() non li tocca e non serve nessun pop() sull'output.
+    _EXPORT_EXCLUDE: ClassVar[frozenset[str]] = frozenset({"raw_payload"})
+
+    # Ordine canonico dei campi nell'export CSV (definito una volta sola qui).
+    _EXPORT_FIELDS: ClassVar[tuple[str, ...]] = (
+        "source", "query", "target",
+        "title", "text", "date", "url",
+        "author", "language", "domain", "retrieved_at",
+        "views_count", "likes_count", "comments_count",
+        "sentiment",
     )
 
     def __post_init__(self) -> None:
@@ -130,7 +142,13 @@ class Record:
         if not self.url:
             raise ValueError("Record.url non può essere vuoto")
         if self.date is not None and not _DATE_RE.match(self.date):
-            raise ValueError(f"Record.date deve essere 'YYYY-MM-DD', ricevuto: '{self.date}'")
+            raise ValueError(
+                f"Record.date deve essere 'YYYY-MM-DD', ricevuto: '{self.date}'"
+            )
+        if self.sentiment is not None and not (-1.0 <= self.sentiment <= 1.0):
+            raise ValueError(
+                f"Record.sentiment deve essere in [-1.0, 1.0], ricevuto: {self.sentiment}"
+            )
 
     # ------------------------------------------------------------------
     # Serializzazione
@@ -138,30 +156,29 @@ class Record:
 
     def to_dict(self, include_raw: bool = False) -> dict[str, Any]:
         """
-        Converte il record in dizionario per serializzazione.
+        Converte il record in dizionario serializzabile (JSON-safe).
 
         Args:
-            include_raw: se True include raw_payload (utile per debug/storage).
-                         Default False — gli exporter non devono includere il raw.
+            include_raw: se True include raw_payload (utile per debug/storage raw).
+                         Default False — gli exporter NON devono includere il raw.
 
         Returns:
-            Dizionario con i campi del record.
+            Dizionario con i campi del record, pronto per json.dumps().
         """
         d = asdict(self)
-        # Rimuovi il campo interno _EXPORT_EXCLUDE (non è un campo dati)
-        d.pop("_EXPORT_EXCLUDE", None)
         if not include_raw:
-            d.pop("raw_payload", None)
+            for key in self._EXPORT_EXCLUDE:
+                d.pop(key, None)
         return d
 
-    @staticmethod
-    def export_fields() -> list[str]:
+    def to_json(self, include_raw: bool = False, **kwargs: Any) -> str:
+        """Serializza il record in stringa JSON."""
+        return json.dumps(self.to_dict(include_raw=include_raw), ensure_ascii=False, **kwargs)
+
+    @classmethod
+    def export_fields(cls) -> tuple[str, ...]:
         """
-        Restituisce l'elenco ordinato dei campi da includere nell'export CSV.
-        Usato da CsvExporter per definire i fieldnames in modo canonico.
+        Restituisce l'ordine canonico dei campi per l'export CSV.
+        Usato da CsvExporter per definire i fieldnames in modo deterministico.
         """
-        return [
-            "source", "title", "text", "date", "url", "query", "target",
-            "author", "language", "domain", "retrieved_at",
-            "views_count", "likes_count", "comments_count",
-        ]
+        return cls._EXPORT_FIELDS

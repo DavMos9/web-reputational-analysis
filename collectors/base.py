@@ -45,15 +45,16 @@ class BaseCollector(ABC):
             )
 
     @abstractmethod
-    def collect(self, target: str, query: str, **kwargs: object) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
         """
         Raccoglie dati dalla sorgente per il target e la query indicati.
 
         Args:
-            target: entità oggetto dell'analisi (es. "Elon Musk").
-            query:  stringa di ricerca (es. "Elon Musk Tesla").
-            **kwargs: parametri opzionali specifici della sorgente
-                      (es. page_size, max_results, lang).
+            target:      entità oggetto dell'analisi (es. "Elon Musk").
+            query:       stringa di ricerca (es. "Elon Musk Tesla").
+            max_results: numero massimo di risultati da raccogliere.
+                         Ogni collector applica internamente il proprio limite di API.
+            **kwargs:    parametri aggiuntivi specifici della sorgente (es. lang).
 
         Returns:
             Lista di RawRecord con il payload grezzo dell'API.

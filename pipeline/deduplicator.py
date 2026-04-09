@@ -1,17 +1,24 @@
 """
-Deduplicator
-Rimuove record duplicati secondo due livelli (data contract §7):
+pipeline/deduplicator.py
 
-Livello 1 — URL identico (stesso contenuto, fonti diverse o stessa fonte)
-Livello 2 — Titolo + dominio identici (stesso articolo con URL leggermente diverso,
-            es. parametri di tracking, redirect, versioni AMP)
+Rimuove Record duplicati su due livelli:
+
+Livello 1 — URL identico (stesso articolo, sorgenti o URL tracking diversi)
+Livello 2 — Titolo + dominio identici (stesso articolo con URL lievemente diverso:
+            parametri di tracking, redirect, versioni AMP, ecc.)
 """
 
+from __future__ import annotations
+
+import logging
 import re
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
+from models import Record
 
-# Parametri URL da ignorare nella comparazione (tracking, analytics, ecc.)
+log = logging.getLogger(__name__)
+
+# Parametri di tracking da ignorare nella comparazione degli URL
 _TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
     "ref", "referer", "referrer", "source", "fbclid", "gclid", "msclkid",
@@ -19,22 +26,21 @@ _TRACKING_PARAMS = {
 }
 
 
-def _normalize_url_for_dedup(url: str) -> str:
+def _canonical_url(url: str) -> str:
     """
     Normalizza un URL per la comparazione:
     - lowercase scheme e host
     - rimuove parametri di tracking
-    - rimuove trailing slash
+    - rimuove trailing slash e fragment
     """
     if not url:
         return ""
     try:
         parsed = urlparse(url.lower().strip())
-        # Rimuovi parametri di tracking dai query params
         params = parse_qs(parsed.query, keep_blank_values=True)
         clean_params = {k: v for k, v in params.items() if k not in _TRACKING_PARAMS}
         clean_query = urlencode(clean_params, doseq=True)
-        normalized = urlunparse((
+        return urlunparse((
             parsed.scheme,
             parsed.netloc,
             parsed.path.rstrip("/"),
@@ -42,12 +48,11 @@ def _normalize_url_for_dedup(url: str) -> str:
             clean_query,
             "",  # ignora fragment
         ))
-        return normalized
     except Exception:
         return url.lower().strip()
 
 
-def _normalize_title_for_dedup(title: str) -> str:
+def _canonical_title(title: str) -> str:
     """
     Normalizza un titolo per la comparazione:
     - lowercase
@@ -55,34 +60,32 @@ def _normalize_title_for_dedup(title: str) -> str:
     """
     if not title:
         return ""
-    t = title.lower()
-    t = re.sub(r"[^\w\s]", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+    t = re.sub(r"[^\w\s]", "", title.lower())
+    return re.sub(r"\s+", " ", t).strip()
 
 
-def deduplicate(records: list[dict]) -> tuple[list[dict], int]:
+def deduplicate(records: list[Record]) -> tuple[list[Record], int]:
     """
-    Rimuove duplicati da una lista di record.
+    Rimuove duplicati da una lista di Record.
 
     Args:
-        records: lista di record puliti e normalizzati
+        records: lista di Record puliti e normalizzati.
 
     Returns:
-        Tupla (records_unici, numero_duplicati_rimossi)
+        Tupla (record_unici, numero_duplicati_rimossi).
     """
     seen_urls: set[str] = set()
     seen_title_domain: set[tuple[str, str]] = set()
 
-    unique: list[dict] = []
+    unique: list[Record] = []
     removed = 0
 
     for record in records:
-        url_key = _normalize_url_for_dedup(record.get("url", ""))
-        title_key = _normalize_title_for_dedup(record.get("title", ""))
-        domain_key = (record.get("domain") or "").lower().strip()
+        url_key = _canonical_url(record.url)
+        title_key = _canonical_title(record.title)
+        domain_key = (record.domain or "").lower().strip()
 
-        # Livello 1: URL identico
+        # Livello 1: URL canonico identico
         if url_key and url_key in seen_urls:
             removed += 1
             continue
@@ -93,7 +96,6 @@ def deduplicate(records: list[dict]) -> tuple[list[dict], int]:
             removed += 1
             continue
 
-        # Record unico: aggiungi e registra le chiavi
         if url_key:
             seen_urls.add(url_key)
         if title_key and domain_key:
@@ -101,4 +103,5 @@ def deduplicate(records: list[dict]) -> tuple[list[dict], int]:
 
         unique.append(record)
 
+    log.info("Deduplicazione: %d rimossi, %d unici.", removed, len(unique))
     return unique, removed

@@ -16,23 +16,28 @@ BASE_URL = "https://newsapi.org/v2/everything"
 class NewsCollector(BaseCollector):
     source_id = "news"
 
-    def collect(self, target: str, query: str, page_size: int = 20) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
         """
         Args:
-            target:    entità analizzata.
-            query:     stringa di ricerca.
-            page_size: numero massimo di risultati (max 100 nel piano gratuito).
+            target:      entità analizzata.
+            query:       stringa di ricerca.
+            max_results: numero massimo di risultati (max 100 nel piano gratuito).
+            kwargs:
+                language (str): codice lingua ISO 639-1, default "en".
+                                Passare "it" per restringere alle fonti italiane.
         """
         if not NEWS_API_KEY:
             self._log_skip("NEWS_API_KEY non configurata")
             return []
 
+        language: str = str(kwargs.get("language", "en"))
+
         params = {
             "q": query,
             "apiKey": NEWS_API_KEY,
-            "pageSize": min(page_size, 100),
+            "pageSize": min(max_results, 100),
             "sortBy": "relevancy",
-            "language": "it",
+            "language": language,
         }
 
         try:
