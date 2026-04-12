@@ -27,6 +27,14 @@ GUARDIAN_API_KEY: str | None = os.getenv("GUARDIAN_API_KEY")
 NYT_API_KEY:      str | None = os.getenv("NYT_API_KEY")
 STACKEXCHANGE_API_KEY: str | None = os.getenv("STACKEXCHANGE_API_KEY")
 
+# Bluesky — App Password (non la password principale dell'account).
+# Crea una App Password su: https://bsky.app/settings/app-passwords
+# BLUESKY_HANDLE: es. "tuo.handle.bsky.social" o solo "tuo.handle"
+# BLUESKY_APP_PASSWORD: formato xxxx-xxxx-xxxx-xxxx
+# Senza credenziali: il collector viene skippato con un warning.
+BLUESKY_HANDLE:       str | None = os.getenv("BLUESKY_HANDLE")
+BLUESKY_APP_PASSWORD: str | None = os.getenv("BLUESKY_APP_PASSWORD")
+
 # Mastodon — access token opzionale (app-level o user-level).
 # IMPORTANTE: un token Mastodon è valido SOLO sull'istanza dove è stato creato.
 # MASTODON_TOKEN_INSTANCE indica a quale istanza appartiene il token.
