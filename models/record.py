@@ -8,7 +8,7 @@ Definisce i due tipi fondamentali della pipeline:
 
 - Record: modello normalizzato e unico in tutta la pipeline.
   Prodotto dal normalizer a partire da un RawRecord.
-  È il tipo che attraversa cleaner, deduplicator ed exporter.
+  È il tipo che attraversa cleaner, deduplicator, enricher ed exporter.
 
 Nessun modulo esterno a models/ dovrebbe definire schemi dati alternativi.
 """
@@ -70,7 +70,7 @@ class Record:
     Modello dati unico e normalizzato della pipeline.
 
     Prodotto dal normalizer a partire da un RawRecord.
-    Attraversa cleaner → deduplicator → exporter senza cambiare schema.
+    Attraversa cleaner → deduplicator → enricher → exporter senza cambiare schema.
 
     Campi canonici (obbligatori):
         source   Sorgente normalizzata (es. "news", "youtube").

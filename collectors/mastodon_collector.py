@@ -232,10 +232,8 @@ class MastodonCollector(BaseCollector):
         - Unisce le parole in CamelCase
         - Es: "Elon Musk" → "ElonMusk", "open ai" → "OpenAi"
         """
-        # Rimuovi tutto tranne lettere, numeri, spazi
         cleaned = re.sub(r"[^\w\s]", "", query)
         words = cleaned.split()
         if not words:
             return ""
-        # CamelCase: prima lettera di ogni parola maiuscola
         return "".join(w.capitalize() for w in words)

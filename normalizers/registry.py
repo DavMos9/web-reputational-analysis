@@ -21,8 +21,6 @@ from models import RawRecord, Record
 
 log = logging.getLogger(__name__)
 
-# Tipo canonico per una funzione normalizer.
-# Prende un RawRecord (grezzo), restituisce Record normalizzato o None.
 NormalizerFn = Callable[[RawRecord], Record | None]
 
 # Registro interno: source_id → funzione normalizer

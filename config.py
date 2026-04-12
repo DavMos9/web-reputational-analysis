@@ -111,7 +111,6 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "wikitalk":         0.55,
 }
 
-# Peso di default per sorgenti non presenti in SOURCE_WEIGHTS
 SOURCE_WEIGHT_DEFAULT: float = 0.50
 
 

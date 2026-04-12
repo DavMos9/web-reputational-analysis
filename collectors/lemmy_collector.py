@@ -33,7 +33,6 @@ _MAX_LIMIT = 50
 # Pausa tra richieste a istanze diverse
 _INTER_INSTANCE_DELAY = 0.5
 
-# Tipi di contenuto da raccogliere
 _CONTENT_TYPES = ("Posts", "Comments")
 
 

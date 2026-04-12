@@ -157,7 +157,6 @@ class GdeltCollector(BaseCollector):
                     )
                     return None  # No retry: non è un problema transitorio
 
-                # --- Parsing JSON ---
                 return response.json()
 
             except requests.exceptions.HTTPError as e:

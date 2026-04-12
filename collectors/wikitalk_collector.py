@@ -66,7 +66,6 @@ class WikiTalkCollector(BaseCollector):
         """
         lang: str = str(kwargs.get("lang", "en"))
 
-        # Trova il titolo canonico dell'articolo
         page_title = self._opensearch(target, lang)
         if not page_title:
             self._log_skip(f"opensearch senza risultati per '{target}' ({lang})")
@@ -77,7 +76,6 @@ class WikiTalkCollector(BaseCollector):
             self._log_skip(f"talk page '{page_title}' già raccolta (query: '{query}')")
             return []
 
-        # Fetch talk page
         sections = self._fetch_talk_sections(page_title, lang)
         if not sections:
             self._log_skip(f"talk page per '{page_title}' vuota o inesistente ({lang})")
@@ -204,7 +202,6 @@ class WikiTalkCollector(BaseCollector):
             level = int(meta.get("level", 2))
             anchor = meta.get("anchor", title.replace(" ", "_"))
 
-            # Trova il wikitext della sezione
             section_text = self._extract_section_text(headers, i, full_wikitext)
 
             # Filtra sezioni vuote o solo-template
@@ -285,7 +282,6 @@ class WikiTalkCollector(BaseCollector):
         cleaned = re.sub(r"'{2,3}", "", cleaned)
         # Rimuovi indent/outdent (: all'inizio riga)
         cleaned = re.sub(r"^[:*#]+\s?", "", cleaned, flags=re.MULTILINE)
-        # Normalizza whitespace
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 

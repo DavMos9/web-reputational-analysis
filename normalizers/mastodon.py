@@ -48,9 +48,7 @@ def _html_to_text(content: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", content)
     # </p><p> → doppio newline (cambio paragrafo)
     text = re.sub(r"</p>\s*<p>", "\n\n", text)
-    # Rimuovi tutti i tag rimanenti
     text = _HTML_TAG_RE.sub("", text)
-    # Decodifica entità HTML
     text = html.unescape(text)
     # Normalizza whitespace (preserva singoli newline)
     lines = [line.strip() for line in text.splitlines()]

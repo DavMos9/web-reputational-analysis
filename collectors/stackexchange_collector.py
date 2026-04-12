@@ -76,7 +76,6 @@ class StackExchangeCollector(BaseCollector):
             records = self._search_site(target, query, site, pagesize, sort)
             all_records.extend(records)
 
-            # Pausa tra siti per evitare throttling
             if len(sites) > 1:
                 time.sleep(_INTER_REQUEST_DELAY)
 

@@ -6,7 +6,7 @@ Interfaccia comune per tutti i collector della pipeline.
 Ogni collector concreto deve:
 - ereditare da BaseCollector
 - implementare il metodo `collect()`
-- restituire List[RawRecord] con il payload grezzo dell'API
+- restituire list[RawRecord] con il payload grezzo dell'API
 - NON fare trasformazioni sui dati (nessuna normalizzazione di date, URL, ecc.)
 - gestire errori API con logging, senza propagare eccezioni non gestite
 """
@@ -62,7 +62,7 @@ class BaseCollector(ABC):
         """
 
     # ------------------------------------------------------------------
-    # Utility condivise — disponibili a tutte le sottoclassi
+    # Utility condivise
     # ------------------------------------------------------------------
 
     def _now_iso(self) -> str:

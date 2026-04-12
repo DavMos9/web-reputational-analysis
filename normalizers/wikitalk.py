@@ -31,7 +31,6 @@ def _normalize(raw: RawRecord) -> Record:
     wikitext = p.get("wikitext", "")
     language = p.get("language", "en")
 
-    # Titolo: chiarisce che è una talk page + sezione
     if section_title:
         title = f"[Talk] {page_title}: {section_title}"
     else:
