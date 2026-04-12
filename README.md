@@ -35,16 +35,33 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 
 ## Fonti dati
 
+### News e media
+
 | Fonte | Tipo | API Key | Limite gratuito |
 |---|---|---|---|
 | [NewsAPI](https://newsapi.org) | Articoli di news | Sì | 100 req/giorno |
 | [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/) | Media globale | No | Nessuno (rate limit variabile) |
-| [Wikipedia](https://www.mediawiki.org/wiki/API:Main_page) | Contesto enciclopedico | No | Nessuno |
-| [YouTube Data API v3](https://developers.google.com/youtube/v3) | Video e canali | Sì | 10.000 unità/giorno |
 | [The Guardian](https://open-platform.theguardian.com) | Articoli giornalistici | Sì | 5.000 req/giorno |
 | [New York Times](https://developer.nytimes.com) | Articoli giornalistici | Sì | 4.000 req/giorno |
 
-> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato.
+### Social e contenuti generati dagli utenti (UGC)
+
+| Fonte | Tipo | API Key | Limite gratuito |
+|---|---|---|---|
+| [YouTube Data API v3](https://developers.google.com/youtube/v3) | Video e commenti | Sì | 10.000 unità/giorno |
+| [Bluesky](https://docs.bsky.app) | Post social | No | ~30 req/min |
+| [Mastodon](https://docs.joinmastodon.org/methods/search/) | Post social (fediverse) | Opzionale | 300 req/5 min per IP |
+| [Lemmy](https://join-lemmy.org/docs/contributors/04-api.html) | Post e commenti (forum) | No | ~60 req/min |
+| [Stack Exchange](https://api.stackexchange.com/docs) | Domande e risposte | Opzionale | 300 req/giorno (10k con key) |
+
+### Riferimenti enciclopedici
+
+| Fonte | Tipo | API Key | Limite gratuito |
+|---|---|---|---|
+| [Wikipedia](https://www.mediawiki.org/wiki/API:Main_page) | Contesto enciclopedico | No | Nessuno |
+| [Wikipedia Talk Pages](https://www.mediawiki.org/wiki/API:Parsing_wikitext) | Discussioni editoriali | No | Nessuno |
+
+> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato. Reddit API è in fase di approvazione.
 
 ---
 
@@ -54,7 +71,7 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 Input (target + queries)
         │
         ▼
-  Collectors (API)
+  Collectors (12 fonti API)
         │
         ▼
   Persistenza raw  →  data/raw/
@@ -133,11 +150,16 @@ NEWS_API_KEY=la_tua_chiave
 GUARDIAN_API_KEY=la_tua_chiave
 NYT_API_KEY=la_tua_chiave
 
+# Opzionali — aumentano i limiti delle rispettive fonti
+STACKEXCHANGE_API_KEY=la_tua_chiave
+MASTODON_ACCESS_TOKEN=il_tuo_token
+MASTODON_TOKEN_INSTANCE=mastodon.social
+
 # HuggingFace token (opzionale, consigliato per l'enrichment NLP)
 HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
 ```
 
-Le fonti senza API key (GDELT, Wikipedia) funzionano senza configurazione aggiuntiva.
+Le fonti senza API key (GDELT, Wikipedia, WikiTalk, Lemmy, Bluesky) funzionano senza configurazione aggiuntiva. Stack Exchange e Mastodon funzionano anche senza key, con limiti ridotti.
 
 **`HF_TOKEN`** — opzionale ma consigliato se si usa l'enrichment NLP. Senza token, HuggingFace applica un rate limit ridotto durante il download del modello XLM-RoBERTa e logga un warning sulle richieste non autenticate. Con il token il download è più stabile e il warning sparisce. Il token va creato su [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (tipo **Read**, piano gratuito sufficiente). Non serve per eseguire la pipeline se il modello è già stato scaricato e cachato localmente.
 
@@ -175,7 +197,7 @@ python main.py --target "Elon Musk" --queries "Elon Musk Tesla" "Elon Musk Space
 ### Selezione fonti specifiche
 
 ```bash
-python main.py --target "Apple" --queries "Apple" --sources news gdelt guardian
+python main.py --target "Apple" --queries "Apple" --sources news gdelt guardian mastodon lemmy
 ```
 
 ### Lingua NewsAPI
@@ -198,7 +220,7 @@ python main.py --target "Emmanuel Macron" --queries "Macron" --news-language fr
 |---|---|---|
 | `--target` | Entità da analizzare | obbligatorio |
 | `--queries` | Una o più query di ricerca | obbligatorio |
-| `--sources` | Fonti da interrogare | tutte |
+| `--sources` | Fonti da interrogare (es. `news gdelt mastodon lemmy`) | tutte |
 | `--max-results` | Risultati massimi per fonte/query | 20 |
 | `--news-language` | Lingua per NewsAPI (ISO 639-1) | `en` |
 | `--no-raw` | Non salvare i payload grezzi | False |
@@ -263,7 +285,11 @@ Per la specifica completa vedere [`docs/Web_Reputational_Analysis_Data_Contract.
 
 **Enrichment NLP:** richiede `pip install -e ".[nlp]"`. Il modello XLM-RoBERTa (~1.1 GB) viene scaricato alla prima esecuzione. Senza le dipendenze NLP, i campi `language` e `sentiment` rimangono `null` ma la pipeline procede normalmente.
 
-**Wikipedia:** restituisce sempre 1 pagina per target indipendentemente da `--max-results`. La ricerca avviene sul nome dell'entità (`target`), non sulla query tematica.
+**Wikipedia / WikiTalk:** restituiscono rispettivamente 1 pagina enciclopedica e le sezioni della relativa talk page. La ricerca avviene sul nome dell'entità (`target`), non sulla query tematica.
+
+**Mastodon:** il token è specifico dell'istanza dove è stato creato (es. mastodon.social). Su istanze senza token, il collector usa automaticamente il fallback sulla timeline hashtag pubblica. La ricerca full-text sugli statuses richiede ElasticSearch attivo sull'istanza.
+
+**Lemmy / Stack Exchange:** la ricerca cross-istanza può produrre duplicati (es. lo stesso post federato su più istanze Lemmy). Il deduplicator li rimuove automaticamente via URL canonico.
 
 ---
 
@@ -285,8 +311,14 @@ web-reputational-analysis/
 │   ├── gdelt_collector.py
 │   ├── wikipedia_collector.py
 │   ├── youtube_collector.py
+│   ├── youtube_comments_collector.py
 │   ├── guardian_collector.py
-│   └── nyt_collector.py
+│   ├── nyt_collector.py
+│   ├── bluesky_collector.py
+│   ├── stackexchange_collector.py
+│   ├── mastodon_collector.py
+│   ├── lemmy_collector.py
+│   └── wikitalk_collector.py
 │
 ├── pipeline/                # Passi di trasformazione
 │   ├── runner.py            # PipelineRunner — orchestratore

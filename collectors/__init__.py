@@ -35,16 +35,28 @@ def build_registry() -> dict[str, "BaseCollector"]:
     from collectors.gdelt_collector import GdeltCollector
     from collectors.wikipedia_collector import WikipediaCollector
     from collectors.youtube_collector import YouTubeCollector
+    from collectors.youtube_comments_collector import YouTubeCommentsCollector
     from collectors.guardian_collector import GuardianCollector
     from collectors.nyt_collector import NytCollector
+    from collectors.bluesky_collector import BlueskyCollector
+    from collectors.stackexchange_collector import StackExchangeCollector
+    from collectors.mastodon_collector import MastodonCollector
+    from collectors.lemmy_collector import LemmyCollector
+    from collectors.wikitalk_collector import WikiTalkCollector
 
     return {
-        "news":      NewsCollector(),
-        "gdelt":     GdeltCollector(),
-        "wikipedia": WikipediaCollector(),
-        "youtube":   YouTubeCollector(),
-        "guardian":  GuardianCollector(),
-        "nyt":       NytCollector(),
+        "news":             NewsCollector(),
+        "gdelt":            GdeltCollector(),
+        "wikipedia":        WikipediaCollector(),
+        "youtube":          YouTubeCollector(),
+        "youtube_comments": YouTubeCommentsCollector(),
+        "guardian":         GuardianCollector(),
+        "nyt":              NytCollector(),
+        "bluesky":          BlueskyCollector(),
+        "stackexchange":    StackExchangeCollector(),
+        "mastodon":         MastodonCollector(),
+        "lemmy":            LemmyCollector(),
+        "wikitalk":         WikiTalkCollector(),
     }
 
 

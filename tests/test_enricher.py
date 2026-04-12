@@ -383,18 +383,31 @@ class TestEnrichRecord:
         assert enriched.sentiment is None
 
     def test_record_not_mutated(self):
-        """Il Record originale non deve essere modificato (dataclasses.replace)."""
+        """Il Record originale non deve essere modificato (dataclasses.replace).
+
+        detect_language viene mockato per restituire "en": questo garantisce
+        che language passi da None a "en", che replace() venga invocato e che
+        enriched sia un oggetto distinto da r — indipendentemente da langdetect.
+        """
         r = _record(title="Original", text="x" * 50, language=None)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
+        with patch("pipeline.enricher.detect_language", return_value="en"), \
+             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
             enriched = enrich_record(r)
         assert r.title == "Original"     # originale invariato
-        assert enriched is not r         # oggetto diverso
+        assert r.language is None        # originale non mutato
+        assert enriched is not r         # replace() chiamato: language None→"en"
 
     def test_language_detected_from_text(self):
-        """language=None + testo inglese → language='en' dopo enrichment."""
+        """language=None + testo → language assegnato dopo enrichment.
+
+        Verifica che enrich_record() propaghi correttamente il risultato di
+        detect_language() al campo language del Record. La rilevazione effettiva
+        della lingua è testata in TestDetectLanguage con @langdetect_available.
+        """
         text = "The quick brown fox jumps over the lazy dog in english language."
         r = _record(title="", text=text, language=None)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
+        with patch("pipeline.enricher.detect_language", return_value="en"), \
+             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
             enriched = enrich_record(r)
         assert enriched.language == "en"
 
@@ -464,17 +477,29 @@ class TestEnrichAll:
         assert all(r.language is None for r in enriched)
 
     def test_partial_enrichment_does_not_affect_others(self):
-        """Record con testo corto non compromette l'enrichment degli altri."""
-        short_record  = _record(title="", text="Hi", language=None)
-        long_record   = _record(
+        """Record con testo corto non compromette l'enrichment degli altri.
+
+        detect_language viene mockato con un side_effect che replica il
+        comportamento della soglia di lunghezza (_MIN_LEN_DETECT): testi brevi
+        restituiscono None, testi sufficientemente lunghi restituiscono "en".
+        Questo isola il test da langdetect mantenendo la semantica corretta.
+        """
+        short_record = _record(title="", text="Hi", language=None)
+        long_record  = _record(
             title="",
             text="The quick brown fox jumps over the lazy dog repeatedly.",
             language=None,
         )
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
+
+        def _mock_detect(text: str) -> str | None:
+            return "en" if len(text) >= _MIN_LEN_DETECT else None
+
+        with patch("pipeline.enricher.detect_language", side_effect=_mock_detect), \
+             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
             enriched = enrich_all([short_record, long_record])
-        assert enriched[0].language is None   # testo troppo corto
-        assert enriched[1].language == "en"   # rilevato correttamente
+
+        assert enriched[0].language is None  # "Hi" → 2 chars, sotto soglia
+        assert enriched[1].language == "en"  # testo lungo → rilevato correttamente
 
     def test_returns_list_not_generator(self):
         """enrich_all deve restituire una lista, non un generatore."""

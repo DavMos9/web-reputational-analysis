@@ -8,8 +8,8 @@ Copertura:
 - normalize() con payload vuoto / URL mancante → None
 - normalize() con sorgente sconosciuta → None
 - normalize_all() con lista vuota e lista mista
-- _to_date(): formati multipli e valori non parsabili
-- _to_url(): schema mancante, URL malformato, stringa vuota
+- to_date(): formati multipli e valori non parsabili
+- to_url(): schema mancante, URL malformato, stringa vuota
 """
 
 from __future__ import annotations
@@ -17,12 +17,8 @@ from __future__ import annotations
 import pytest
 
 from models import RawRecord, Record
-from pipeline.normalizer import (
-    normalize,
-    normalize_all,
-    _to_date,
-    _to_url,
-)
+from pipeline.normalizer import normalize, normalize_all
+from normalizers.utils import to_date, to_url
 
 
 # ---------------------------------------------------------------------------
@@ -40,60 +36,60 @@ def _raw(source: str, payload: dict, query: str = "test query", target: str = "T
 
 
 # ---------------------------------------------------------------------------
-# Test: _to_date
+# Test: to_date
 # ---------------------------------------------------------------------------
 
 class TestToDate:
     def test_iso8601_full(self):
-        assert _to_date("2026-04-08T10:00:00Z") == "2026-04-08"
+        assert to_date("2026-04-08T10:00:00Z") == "2026-04-08"
 
     def test_date_only(self):
-        assert _to_date("2026-04-08") == "2026-04-08"
+        assert to_date("2026-04-08") == "2026-04-08"
 
     def test_gdelt_format(self):
         """GDELT usa il formato "20260408T120000Z"."""
-        assert _to_date("20260408T120000Z") == "2026-04-08"
+        assert to_date("20260408T120000Z") == "2026-04-08"
 
     def test_none_input(self):
-        assert _to_date(None) is None
+        assert to_date(None) is None
 
     def test_empty_string(self):
-        assert _to_date("") is None
+        assert to_date("") is None
 
     def test_invalid_string(self):
-        assert _to_date("not-a-date") is None
+        assert to_date("not-a-date") is None
 
     def test_overflow_value(self):
         """Anno fuori range non deve sollevare eccezione."""
-        assert _to_date("99999-01-01") is None
+        assert to_date("99999-01-01") is None
 
 
 # ---------------------------------------------------------------------------
-# Test: _to_url
+# Test: to_url
 # ---------------------------------------------------------------------------
 
 class TestToUrl:
     def test_valid_https_url(self):
-        assert _to_url("https://example.com/path") == "https://example.com/path"
+        assert to_url("https://example.com/path") == "https://example.com/path"
 
     def test_adds_https_schema(self):
         """URL senza schema → aggiunge https://"""
-        result = _to_url("example.com/path")
+        result = to_url("example.com/path")
         assert result == "https://example.com/path"
 
     def test_strips_whitespace(self):
-        assert _to_url("  https://example.com  ") == "https://example.com"
+        assert to_url("  https://example.com  ") == "https://example.com"
 
     def test_none_returns_empty(self):
-        assert _to_url(None) == ""
+        assert to_url(None) == ""
 
     def test_empty_string_returns_empty(self):
-        assert _to_url("") == ""
+        assert to_url("") == ""
 
     def test_invalid_url_no_netloc(self):
         """Percorso senza host (es. '/path/only') non produce un URL valido."""
         # "/path/only" → "https:///path/only" → netloc vuoto → ""
-        assert _to_url("/path/only") == ""
+        assert to_url("/path/only") == ""
 
 
 # ---------------------------------------------------------------------------

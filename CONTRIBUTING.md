@@ -8,7 +8,7 @@ Grazie per l'interesse nel progetto. Ecco le linee guida per contribuire in modo
 
 - Python 3.11+
 - Ambiente virtuale attivato (`python -m venv .venv && source .venv/bin/activate`)
-- Dipendenze installate (`pip install -r requirements.txt`)
+- Dipendenze installate (`pip install -e .` oppure `pip install -e ".[nlp]"` per enrichment NLP)
 - File `.env` configurato con le API key necessarie
 
 ---
@@ -34,9 +34,10 @@ Il progetto segue una pipeline modulare con responsabilità separate. **Non mesc
 3. Implementa `collect(target, query, max_results)` → `list[RawRecord]`.
 4. Il collector **non normalizza, non pulisce, non salva** — restituisce solo `RawRecord` con il payload grezzo.
 5. Gestisci tutti gli errori API internamente con `try/except` e logging.
-6. Aggiungi il mapping nel normalizer (`pipeline/normalizer.py`) per convertire `RawRecord` → `Record`.
+6. Crea `normalizers/{nome}.py` con la funzione `_normalize(raw: RawRecord) -> Record` e registrala con `register("{source_id}", _normalize)`. Importa il modulo in `normalizers/__init__.py`.
 7. Registra il collector in `collectors/__init__.py` (o dove è definito il `REGISTRY`).
-8. Aggiorna la wiki [Collectors](../../wiki/Collectors) e [Schema-Dati](../../wiki/Schema-Dati) con il nuovo mapping.
+8. Aggiungi il peso della sorgente in `config.py` → `SOURCE_WEIGHTS`.
+9. Aggiorna la wiki [Collectors](../../wiki/Collectors) e [Schema-Dati](../../wiki/Schema-Dati) con il nuovo mapping.
 
 ### Modificare lo schema dati
 
@@ -52,8 +53,10 @@ Lo schema è definito in `models/record.py`. Qualsiasi modifica deve:
 I passi della pipeline sono in `pipeline/`. L'ordine è definito in `pipeline/runner.py`:
 
 ```
-collect → normalize → clean → deduplicate → export
+collect → normalize → clean → deduplicate → enrich → export
 ```
+
+L'enricher (language detection + sentiment analysis) è opzionale: se le dipendenze NLP non sono installate, i campi `language` e `sentiment` restano `null` senza interrompere la pipeline.
 
 Non aggiungere logica di business in `runner.py` — mantienila nei moduli specifici.
 

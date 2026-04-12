@@ -23,7 +23,7 @@ from typing import Protocol, runtime_checkable
 
 from models import RawRecord, Record
 from pipeline.normalizer import normalize_all
-from pipeline.cleaner import clean_all
+from pipeline.cleaner import clean_all, filter_quality
 from pipeline.deduplicator import deduplicate
 from pipeline.enricher import enrich_all
 
@@ -142,9 +142,12 @@ class PipelineRunner:
         # 3. Normalizzazione
         records = normalize_all(raw_records)
 
-        # 4. Pulizia
+        # 4. Pulizia testuale
         records = clean_all(records)
-        log.info("Puliti %d record.", len(records))
+
+        # 4b. Filtro qualità (min lunghezza title/text — soglie in config.py)
+        records, skipped = filter_quality(records)
+        log.info("Puliti: %d record validi, %d scartati per qualità.", len(records), skipped)
 
         # 5. Deduplicazione
         records, removed = deduplicate(records)
