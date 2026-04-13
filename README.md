@@ -89,13 +89,16 @@ Input (target + queries)
     Enricher  ←  language detection + sentiment analysis (NLP opzionale)
         │
         ▼
-   Exporters (JSON + CSV)  →  data/final/
+   Aggregator  ←  reputation score, trend, metriche entity-level
+        │
+        ▼
+   Exporters (JSON + CSV + Summary)  →  data/final/
         │
         ▼
 IBM Cloud Pak for Data
 ```
 
-La pipeline è modulare e ogni step è indipendente. L'enrichment (language detection + sentiment) è opzionale: se le dipendenze NLP non sono installate, i campi `language` e `sentiment` rimangono `null` senza interrompere la pipeline.
+La pipeline è modulare e ogni step è indipendente. L'enrichment (language detection + sentiment) è opzionale: se le dipendenze NLP non sono installate, i campi `language` e `sentiment` rimangono `null` senza interrompere la pipeline. L'aggregator produce un reputation score composito e un'analisi del trend a partire dai record arricchiti.
 
 ---
 
@@ -185,7 +188,17 @@ Output atteso:
 [nyt] Raccolti 10 record per query: 'Giorgia Meloni'
 2026-04-08T18:12:32 [INFO] Deduplicati: 0 rimossi, 91 record unici.
 2026-04-08T18:12:32 [INFO] Enrichment: 87/91 record con language, 74/91 con sentiment.
-2026-04-08T18:12:32 [INFO] === Pipeline completata: 91 record finali. ===
+2026-04-08T18:12:32 [INFO] Aggregazione completata per 'Giorgia Meloni': 91 record, reputation=0.5842, trend=stable
+2026-04-08T18:12:32 [INFO] === Pipeline completata: 91 record finali, reputation=0.5842 ===
+
+Risultato: 91 record finali esportati in data/final/
+
+--- Reputation Summary: Giorgia Meloni ---
+  Reputation Score: 0.5842
+  Sentiment (avg):  0.0523
+  Trend:            stable
+  Sources:          91 record da 6 fonti
+  Date range:       ('2026-03-10', '2026-04-08')
 ```
 
 ### Query multiple
@@ -232,7 +245,10 @@ I file vengono salvati in:
 ```
 data/
 ├── raw/    # Payload grezzi per debug e audit
-└── final/  # Dataset finale (JSON + CSV)
+└── final/  # Dataset finale
+    ├── {target}_{timestamp}_final.json      # Record individuali (JSON)
+    ├── {target}_{timestamp}_final.csv       # Record individuali (CSV)
+    └── {target}_{timestamp}_summary.json    # Analisi aggregata entity-level
 ```
 
 ---
@@ -274,6 +290,88 @@ Ogni record rispetta il seguente schema unificato, definito in `models/record.py
 **Date:** formato `YYYY-MM-DD` (solo data, no orario).
 
 Per la specifica completa vedere [`docs/Web_Reputational_Analysis_Data_Contract.pdf`](docs/Web_Reputational_Analysis_Data_Contract.pdf).
+
+### Reputation summary (entity-level)
+
+Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'analisi aggregata per entità. Lo schema è definito in `pipeline/aggregator.py` (`EntitySummary`):
+
+```json
+{
+  "entity": "Giorgia Meloni",
+  "record_count": 91,
+  "records_with_sentiment": 74,
+  "source_distribution": {
+    "news": 20,
+    "gdelt": 20,
+    "youtube": 20,
+    "guardian": 20,
+    "nyt": 10,
+    "wikipedia": 1
+  },
+  "sentiment_avg": 0.0523,
+  "sentiment_std": 0.4218,
+  "source_trust_avg": 0.8142,
+  "recency_score": 0.7856,
+  "volume_score": 0.8503,
+  "reputation_score": 0.5842,
+  "trend": "stable",
+  "date_range": {
+    "from": "2026-03-10",
+    "to": "2026-04-08"
+  },
+  "computed_at": "2026-04-08T18:12:32Z"
+}
+```
+
+**Reputation score** — composito in `[0.0, 1.0]`, calcolato come media pesata di quattro componenti (pesi configurabili in `config.py`):
+
+| Componente | Peso | Descrizione |
+|---|---|---|
+| Sentiment | 0.40 | Media pesata del sentiment dei record (pesata per autorevolezza della fonte) |
+| Source trust | 0.30 | Media dei pesi di autorevolezza delle sorgenti (`SOURCE_WEIGHTS`) |
+| Recency | 0.20 | Quanto sono recenti i record (decay esponenziale, half-life 30 giorni) |
+| Volume | 0.10 | Volume normalizzato con log-scaling |
+
+**Trend** — direzione del sentiment nel tempo, calcolata con regressione lineare: `"up"` (miglioramento), `"down"` (peggioramento), `"stable"`, `"unknown"` (dati insufficienti, < 3 record con data e sentiment).
+
+**`sentiment_std`** — deviazione standard del sentiment. Un valore alto indica opinioni polarizzate (es. entità controversa), un valore basso indica consenso.
+
+### Esempio di analisi reale
+
+Un'esecuzione su `"OpenAI"` con query `"OpenAI GPT"` e `"OpenAI lawsuits"` potrebbe produrre:
+
+```json
+{
+  "entity": "OpenAI",
+  "record_count": 127,
+  "records_with_sentiment": 98,
+  "source_distribution": {
+    "news": 35,
+    "gdelt": 28,
+    "guardian": 18,
+    "youtube": 16,
+    "bluesky": 12,
+    "mastodon": 8,
+    "nyt": 6,
+    "stackexchange": 3,
+    "wikipedia": 1
+  },
+  "sentiment_avg": -0.0842,
+  "sentiment_std": 0.5123,
+  "source_trust_avg": 0.7890,
+  "recency_score": 0.9012,
+  "volume_score": 0.9350,
+  "reputation_score": 0.5234,
+  "trend": "down",
+  "date_range": {
+    "from": "2026-03-05",
+    "to": "2026-04-13"
+  },
+  "computed_at": "2026-04-13T10:30:00Z"
+}
+```
+
+In questo caso: il sentiment medio è leggermente negativo (-0.08) con alta dispersione (0.51), indicando opinioni polarizzate. Il trend è `"down"`, suggerendo un peggioramento nel periodo analizzato. L'alto recency score (0.90) indica che la maggior parte dei contenuti è recente. Il reputation score complessivo (0.52) riflette una reputazione attorno alla neutralità, trascinata verso il basso dal sentiment negativo.
 
 ---
 
@@ -325,14 +423,16 @@ web-reputational-analysis/
 │   ├── normalizer.py        # RawRecord → Record (date YYYY-MM-DD, URL, domini)
 │   ├── cleaner.py           # Pulizia stringhe e null
 │   ├── deduplicator.py      # Rimozione duplicati (URL + titolo+dominio)
-│   └── enricher.py          # Language detection + sentiment analysis (NLP)
+│   ├── enricher.py          # Language detection + sentiment analysis (NLP)
+│   └── aggregator.py        # Aggregazione entity-level e reputation score
 │
 ├── storage/                 # Persistenza
 │   └── raw_store.py         # Salvataggio RawRecord grezzi in data/raw/
 │
 ├── exporters/               # Export finale
-│   ├── json_exporter.py     # Serializzazione JSON
-│   └── csv_exporter.py      # Serializzazione CSV
+│   ├── json_exporter.py     # Serializzazione JSON (record-level)
+│   ├── csv_exporter.py      # Serializzazione CSV (record-level)
+│   └── summary_json_exporter.py  # Serializzazione summary (entity-level)
 │
 ├── utils/                   # Utility condivise
 │   └── slugify.py           # target_slug() e now_timestamp()
@@ -349,6 +449,8 @@ web-reputational-analysis/
     ├── test_exporters.py
     ├── test_raw_store.py
     ├── test_runner.py
+    ├── test_aggregator.py
+    ├── test_summary_json_exporter.py
     └── test_slugify.py
 ```
 

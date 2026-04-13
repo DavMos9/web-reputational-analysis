@@ -93,20 +93,22 @@ class TestPipelineConfig:
 class TestPipelineRunnerRun:
 
     def test_no_records_collected_returns_empty(self):
-        """Nessun record prodotto → pipeline restituisce lista vuota."""
+        """Nessun record prodotto → pipeline restituisce lista vuota e summary None."""
         collector = _make_collector("news", returns=[])
         registry = {"news": collector}
         runner = PipelineRunner(registry=registry)
-        result = runner.run(_config(sources=["news"]))
-        assert result == []
+        records, summary = runner.run(_config(sources=["news"]))
+        assert records == []
+        assert summary is None
 
     def test_unknown_source_skipped(self):
         """Sorgente non nel registry viene ignorata senza eccezione."""
         registry = {"news": _make_collector("news", returns=[])}
         runner = PipelineRunner(registry=registry)
         # "gdelt" non esiste nel registry
-        result = runner.run(_config(sources=["gdelt"]))
-        assert result == []
+        records, summary = runner.run(_config(sources=["gdelt"]))
+        assert records == []
+        assert summary is None
 
     def test_collector_exception_does_not_crash_pipeline(self):
         """Collector che solleva eccezione non interrompe l'esecuzione."""
@@ -118,19 +120,22 @@ class TestPipelineRunnerRun:
         registry = {"news": bad_collector, "gdelt": good_collector}
 
         runner = PipelineRunner(registry=registry)
-        result = runner.run(_config(sources=["news", "gdelt"]))
+        records, summary = runner.run(_config(sources=["news", "gdelt"]))
         # I record del collector funzionante devono passare
-        assert len(result) >= 1
+        assert len(records) >= 1
 
-    def test_normal_flow_returns_records(self):
-        """Flusso normale: collector produce record → pipeline li restituisce normalizzati."""
+    def test_normal_flow_returns_records_and_summary(self):
+        """Flusso normale: collector produce record → pipeline li restituisce con summary."""
         collector = _make_collector("news", returns=[_raw("news")])
         registry = {"news": collector}
         runner = PipelineRunner(registry=registry)
-        result = runner.run(_config(sources=["news"]))
-        assert len(result) == 1
-        assert isinstance(result[0], Record)
-        assert result[0].source == "news"
+        records, summary = runner.run(_config(sources=["news"]))
+        assert len(records) == 1
+        assert isinstance(records[0], Record)
+        assert records[0].source == "news"
+        assert summary is not None
+        assert summary.entity == "Test Target"
+        assert summary.record_count == 1
 
     def test_multiple_queries_called_for_each_query(self):
         """collect() viene chiamato una volta per ogni query."""
@@ -150,8 +155,8 @@ class TestPipelineRunnerRun:
         registry = {"news": collector}
 
         runner = PipelineRunner(registry=registry)
-        result = runner.run(_config(sources=["news"]))
-        assert len(result) == 1
+        records, summary = runner.run(_config(sources=["news"]))
+        assert len(records) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -190,10 +195,10 @@ class TestPipelineRunnerRawStore:
         registry = {"news": collector}
 
         runner = PipelineRunner(registry=registry, raw_store=raw_store)
-        result = runner.run(_config(sources=["news"], save_raw=True))
+        records, summary = runner.run(_config(sources=["news"], save_raw=True))
 
         # La pipeline deve continuare e restituire i record
-        assert len(result) >= 1
+        assert len(records) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +230,7 @@ class TestPipelineRunnerExporters:
         registry = {"news": collector}
 
         runner = PipelineRunner(registry=registry, exporters=[exporter])
-        result = runner.run(_config(sources=["news"]))
+        records, summary = runner.run(_config(sources=["news"]))
 
         # runner deve restituire i record anche se l'exporter ha fallito
-        assert len(result) >= 1
+        assert len(records) >= 1

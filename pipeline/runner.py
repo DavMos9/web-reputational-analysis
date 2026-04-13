@@ -26,6 +26,7 @@ from pipeline.normalizer import normalize_all
 from pipeline.cleaner import clean_all, filter_quality
 from pipeline.deduplicator import deduplicate
 from pipeline.enricher import enrich_all
+from pipeline.aggregator import aggregate, EntitySummary
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ class RawStoreProtocol(Protocol):
 @runtime_checkable
 class ExporterProtocol(Protocol):
     def export(self, records: list[Record], target: str, timestamp: str) -> None: ...
+
+
+@runtime_checkable
+class SummaryExporterProtocol(Protocol):
+    def export_summary(self, summary: EntitySummary, timestamp: str) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -100,16 +106,18 @@ class PipelineRunner:
         registry: dict,
         raw_store: RawStoreProtocol | None = None,
         exporters: list[ExporterProtocol] | None = None,
+        summary_exporters: list[SummaryExporterProtocol] | None = None,
     ) -> None:
         self._registry  = registry
         self._raw_store = raw_store
         self._exporters = exporters or []
+        self._summary_exporters = summary_exporters or []
 
     # ------------------------------------------------------------------
     # Entry point principale
     # ------------------------------------------------------------------
 
-    def run(self, config: PipelineConfig, timestamp: str = "") -> list[Record]:
+    def run(self, config: PipelineConfig, timestamp: str = "") -> tuple[list[Record], EntitySummary | None]:
         """
         Esegue la pipeline completa per la configurazione fornita.
 
@@ -119,7 +127,10 @@ class PipelineRunner:
                        Se vuota viene ignorata dagli exporter.
 
         Returns:
-            Lista di Record finali validi, deduplicati e pronti per l'analisi.
+            Tupla (records, summary):
+            - records: lista di Record finali validi, deduplicati e pronti per l'analisi.
+            - summary: EntitySummary con metriche reputazionali aggregate,
+                       None se nessun record è rimasto dopo la pipeline.
         """
         log.info("=== Pipeline avviata: target='%s', fonti=%s ===",
                  config.target, config.sources or list(self._registry))
@@ -130,7 +141,7 @@ class PipelineRunner:
 
         if not raw_records:
             log.warning("Nessun record raccolto. Pipeline terminata.")
-            return []
+            return [], None
 
         # 2. Salvataggio raw (effetto collaterale opzionale)
         if config.save_raw and self._raw_store:
@@ -155,22 +166,33 @@ class PipelineRunner:
 
         if not records:
             log.warning("Nessun record rimasto dopo deduplicazione.")
-            return []
+            return [], None
 
         # 6. Enrichment: language detection + sentiment analysis
         # Posizionato dopo la deduplicazione per non sprecare NLP su duplicati.
         records = enrich_all(records)
 
-        # 7. Export (effetti collaterali opzionali)
+        # 7. Aggregazione entity-level
+        summary = aggregate(records)
+
+        # 8. Export record-level (effetti collaterali opzionali)
         for exporter in self._exporters:
             try:
                 exporter.export(records, config.target, timestamp)
             except Exception as e:
                 log.error("Errore exporter %s: %s", type(exporter).__name__, e)
 
-        log.info("=== Pipeline completata: %d record finali. ===", len(records))
+        # 8b. Export summary (effetti collaterali opzionali)
+        for exporter in self._summary_exporters:
+            try:
+                exporter.export_summary(summary, timestamp)
+            except Exception as e:
+                log.error("Errore summary exporter %s: %s", type(exporter).__name__, e)
 
-        return records
+        log.info("=== Pipeline completata: %d record finali, reputation=%.4f ===",
+                 len(records), summary.reputation_score)
+
+        return records, summary
 
     # ------------------------------------------------------------------
     # Raccolta interna

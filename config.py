@@ -115,6 +115,35 @@ SOURCE_WEIGHT_DEFAULT: float = 0.50
 
 
 # ---------------------------------------------------------------------------
+# Aggregation — usate da pipeline/aggregator.py
+# ---------------------------------------------------------------------------
+
+# Pesi del reputation score composito.
+# Ogni componente è normalizzato in [0.0, 1.0] prima della combinazione.
+# La somma DEVE essere 1.0.
+REPUTATION_WEIGHTS: dict[str, float] = {
+    "sentiment":  0.40,   # media pesata del sentiment dei record
+    "trust":      0.30,   # media pesata dei SOURCE_WEIGHTS delle sorgenti
+    "recency":    0.20,   # quanto sono recenti i record (decay esponenziale)
+    "volume":     0.10,   # volume normalizzato (log-scaling)
+}
+
+# Half-life per il recency score (in giorni).
+# Dopo RECENCY_HALF_LIFE_DAYS un record contribuisce metà del suo peso
+# rispetto a un record di oggi. Valori bassi = più sensibile alla freschezza.
+RECENCY_HALF_LIFE_DAYS: int = 30
+
+# Soglia di volume per la normalizzazione logaritmica.
+# VOLUME_REFERENCE è il numero di record che produce un volume_score ≈ 1.0.
+# Con log scaling: volume_score = min(1.0, log(1 + count) / log(1 + ref)).
+VOLUME_REFERENCE: int = 100
+
+# Soglia sulla pendenza della regressione lineare per classificare il trend.
+# Se |slope| < TREND_THRESHOLD → "stable".
+TREND_THRESHOLD: float = 0.005
+
+
+# ---------------------------------------------------------------------------
 # Deduplication — usate da pipeline/deduplicator.py
 # ---------------------------------------------------------------------------
 

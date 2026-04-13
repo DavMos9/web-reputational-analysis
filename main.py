@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 
 from collectors import build_registry
-from exporters import JsonExporter, CsvExporter
+from exporters import JsonExporter, CsvExporter, SummaryJsonExporter
 from pipeline import PipelineRunner, PipelineConfig
 from storage import RawStore
 from utils import now_timestamp
@@ -105,10 +105,21 @@ def main() -> None:
             JsonExporter(BASE_DIR),
             CsvExporter(BASE_DIR),
         ],
+        summary_exporters=[
+            SummaryJsonExporter(BASE_DIR),
+        ],
     )
 
-    records = runner.run(config, timestamp=ts)
+    records, summary = runner.run(config, timestamp=ts)
     print(f"\nRisultato: {len(records)} record finali esportati in data/final/")
+
+    if summary is not None:
+        print(f"\n--- Reputation Summary: {summary.entity} ---")
+        print(f"  Reputation Score: {summary.reputation_score:.4f}")
+        print(f"  Sentiment (avg):  {summary.sentiment_avg}")
+        print(f"  Trend:            {summary.trend}")
+        print(f"  Sources:          {summary.record_count} record da {len(summary.source_distribution)} fonti")
+        print(f"  Date range:       {summary.date_range}")
 
 
 if __name__ == "__main__":
