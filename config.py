@@ -27,6 +27,12 @@ GUARDIAN_API_KEY: str | None = os.getenv("GUARDIAN_API_KEY")
 NYT_API_KEY:      str | None = os.getenv("NYT_API_KEY")
 STACKEXCHANGE_API_KEY: str | None = os.getenv("STACKEXCHANGE_API_KEY")
 
+# Brave Search API — web search generalista con indice indipendente.
+# Piano gratuito ("Data for AI" Free): 2.000 query/mese, 1 query/sec.
+# Registrazione: https://api-dashboard.search.brave.com/
+# Senza key: il collector viene skippato con un warning.
+BRAVE_API_KEY: str | None = os.getenv("BRAVE_API_KEY")
+
 # Bluesky — App Password (non la password principale dell'account).
 # Crea una App Password su: https://bsky.app/settings/app-passwords
 # BLUESKY_HANDLE: es. "tuo.handle.bsky.social" o solo "tuo.handle"
@@ -101,7 +107,6 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "news":             0.85,
     "gdelt":            0.75,
     "wikipedia":        0.70,
-    "reddit":           0.70,  # preparato per collector Reddit
     "bluesky":          0.60,
     "youtube":          0.65,
     "youtube_comments": 0.55,
@@ -109,6 +114,9 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "mastodon":         0.60,
     "lemmy":            0.65,
     "wikitalk":         0.55,
+    # Brave Search: web generalista (SEO-shaped). Peso inferiore alle news
+    # API native perché qualità e presenza di metadati (data, autore) variano.
+    "brave":            0.55,
 }
 
 SOURCE_WEIGHT_DEFAULT: float = 0.50
@@ -133,10 +141,14 @@ REPUTATION_WEIGHTS: dict[str, float] = {
 # rispetto a un record di oggi. Valori bassi = più sensibile alla freschezza.
 RECENCY_HALF_LIFE_DAYS: int = 30
 
-# Soglia di volume per la normalizzazione logaritmica.
-# VOLUME_REFERENCE è il numero di record che produce un volume_score ≈ 1.0.
-# Con log scaling: volume_score = min(1.0, log(1 + count) / log(1 + ref)).
-VOLUME_REFERENCE: int = 100
+# Half-saturation per il volume_score.
+# VOLUME_HALFSAT è il numero di record a cui volume_score = 0.5.
+# Formula (saturazione asintotica, senza hard cap):
+#   volume_score = log(1 + count) / (log(1 + count) + log(1 + halfsat))
+# Lo score tende asintoticamente a 1.0 al crescere di count: resta sempre
+# discriminante anche per run molto grandi (100 vs 5000 record → score diversi),
+# a differenza della vecchia formula log-normalizzata con hard cap.
+VOLUME_HALFSAT: int = 100
 
 # Soglia sulla pendenza della regressione lineare per classificare il trend.
 # Se |slope| < TREND_THRESHOLD → "stable".

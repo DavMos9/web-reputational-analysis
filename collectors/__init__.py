@@ -43,6 +43,7 @@ def build_registry() -> dict[str, "BaseCollector"]:
     from collectors.mastodon_collector import MastodonCollector
     from collectors.lemmy_collector import LemmyCollector
     from collectors.wikitalk_collector import WikiTalkCollector
+    from collectors.brave_collector import BraveCollector
 
     return {
         "news":             NewsCollector(),
@@ -57,6 +58,7 @@ def build_registry() -> dict[str, "BaseCollector"]:
         "mastodon":         MastodonCollector(),
         "lemmy":            LemmyCollector(),
         "wikitalk":         WikiTalkCollector(),
+        "brave":            BraveCollector(),
     }
 
 

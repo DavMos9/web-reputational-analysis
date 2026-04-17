@@ -9,7 +9,7 @@ Copertura:
 - aggregate(): record con sentiment → media pesata corretta
 - aggregate(): source_distribution ordinata correttamente
 - aggregate(): recency_score con record recenti vs vecchi
-- aggregate(): volume_score con log-scaling
+- aggregate(): volume_score con saturazione asintotica (Hill-on-log)
 - aggregate(): trend "up", "down", "stable", "unknown"
 - aggregate(): date_range estrazione corretta
 - aggregate(): sentiment_std calcolata correttamente
@@ -215,25 +215,60 @@ class TestRecencyScore:
 # ---------------------------------------------------------------------------
 
 class TestVolumeScore:
+    """
+    Saturazione asintotica: volume_score = l / (l + log(1+halfsat)),
+    con l = log(1+count). Proprietà:
+      - count=0 → 0.0
+      - count=VOLUME_HALFSAT → 0.5
+      - count→∞ → 1.0 (asintoto, mai raggiunto)
+      - monotona crescente in count
+    """
 
     def test_zero_records(self):
         assert _compute_volume_score(0) == 0.0
 
-    def test_reference_gives_one(self):
-        """VOLUME_REFERENCE record → volume_score = 1.0."""
-        from config import VOLUME_REFERENCE
-        score = _compute_volume_score(VOLUME_REFERENCE)
-        assert abs(score - 1.0) < 1e-4
+    def test_halfsat_gives_half(self):
+        """VOLUME_HALFSAT record → volume_score = 0.5 (per definizione)."""
+        from config import VOLUME_HALFSAT
+        score = _compute_volume_score(VOLUME_HALFSAT)
+        assert abs(score - 0.5) < 1e-4
 
-    def test_above_reference_capped_at_one(self):
-        score = _compute_volume_score(10000)
-        assert score == 1.0
+    def test_above_halfsat_is_greater_than_half(self):
+        """Oltre halfsat lo score supera 0.5 ma resta < 1.0."""
+        from config import VOLUME_HALFSAT
+        score = _compute_volume_score(VOLUME_HALFSAT * 5)
+        assert 0.5 < score < 1.0
+
+    def test_asymptotic_upper_bound(self):
+        """
+        Anche per count enormi lo score non raggiunge 1.0 (asintoto).
+        La saturazione della Hill-on-log è deliberatamente lenta:
+        con halfsat=100, n=10M dà ~0.78 — la formula resta discriminante
+        fino a ordini di grandezza molto alti.
+        """
+        score = _compute_volume_score(10_000_000)
+        assert score < 1.0
+        # Molto sopra il punto di half-saturation (0.5), ma asintotico
+        assert score > 0.7
+
+    def test_no_hard_cap(self):
+        """La nuova formula NON satura: count diversi → score diversi."""
+        s1 = _compute_volume_score(200)
+        s2 = _compute_volume_score(5000)
+        assert s2 > s1  # la vecchia formula con hard cap avrebbe dato s1 == s2 == 1.0
 
     def test_monotonic_increase(self):
         """Più record → score più alto."""
         s1 = _compute_volume_score(5)
         s2 = _compute_volume_score(50)
-        assert s2 > s1
+        s3 = _compute_volume_score(500)
+        assert s1 < s2 < s3
+
+    def test_score_range(self):
+        """Lo score è sempre in [0.0, 1.0) per ogni count non-negativo."""
+        for n in (0, 1, 10, 100, 1000, 100_000):
+            s = _compute_volume_score(n)
+            assert 0.0 <= s < 1.0
 
 
 # ---------------------------------------------------------------------------

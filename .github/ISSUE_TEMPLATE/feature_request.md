@@ -21,7 +21,7 @@ Descrivi l'esigenza concreta: es. "Con le fonti attuali non ottengo copertura di
 
 ## Soluzione proposta
 
-Descrivi la funzionalità che vorresti: es. "Aggiungere un collector per Reddit usando PRAW, che recupera i post dei subreddit più rilevanti per il target", "Aggiungere un secondo livello di deduplicazione basato su similarità del titolo con soglia configurabile".
+Descrivi la funzionalità che vorresti: es. "Aggiungere un collector per Brave Search API che recupera risultati web generalisti", "Aggiungere un secondo livello di deduplicazione basato su similarità del titolo con soglia configurabile".
 
 Se si tratta di un nuovo collector, specifica:
 - **Nome della fonte:**

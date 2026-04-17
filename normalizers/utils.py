@@ -11,10 +11,17 @@ Queste funzioni sono pubbliche (niente prefisso _) perché:
 
 from __future__ import annotations
 
+import html
+import re
 from datetime import timezone
 from urllib.parse import urlparse
 
 from dateutil import parser as dateutil_parser
+
+
+# Tag HTML semplice: apertura/chiusura di qualsiasi elemento.
+# Non tenta di gestire HTML malformato (non serve — l'input è API-generato).
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def to_date(value: str | None) -> str | None:
@@ -74,3 +81,20 @@ def to_int(val: object) -> int | None:
         return int(val) if val is not None else None  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return None
+
+
+def strip_html(text: str | None) -> str:
+    """
+    Rimuove tag HTML e decodifica le entità (es. &amp; → &).
+
+    Utility condivisa per le sorgenti che restituiscono snippet con
+    markup inline (Brave, Stack Exchange, Mastodon, ecc.).
+    Non è un parser HTML completo: si limita a rimuovere i tag e lasciare
+    il testo pulito, sufficiente per pipeline di sentiment/dedup.
+
+    Restituisce stringa vuota se l'input è None o vuoto.
+    """
+    if not text:
+        return ""
+    cleaned = _HTML_TAG_RE.sub("", text)
+    return html.unescape(cleaned).strip()

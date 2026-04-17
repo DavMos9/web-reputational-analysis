@@ -61,7 +61,13 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 | [Wikipedia](https://www.mediawiki.org/wiki/API:Main_page) | Contesto enciclopedico | No | Nessuno |
 | [Wikipedia Talk Pages](https://www.mediawiki.org/wiki/API:Parsing_wikitext) | Discussioni editoriali | No | Nessuno |
 
-> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato. Reddit API è in fase di approvazione.
+### Web search generalista
+
+| Fonte | Tipo | API Key | Limite gratuito |
+|---|---|---|---|
+| [Brave Search](https://api-dashboard.search.brave.com/) | Web search (indice indipendente) | Sì | 2.000 query/mese, 1 query/sec |
+
+> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato. Reddit API è stata esclusa definitivamente: il modello di pricing/accesso attuale e i vincoli dei Termini di Servizio (uso commerciale/ricerca, moderazione) la rendono inadatta a una pipeline di reputation analysis riproducibile. La copertura di contenuti in stile forum/community è coperta da Lemmy, Mastodon e Bluesky. SearXNG è stata valutata come alternativa self-hosted ma scartata per fragilità infrastrutturale (blocchi IP dei motori upstream, affidabilità bassa): Brave offre copertura comparabile con un indice proprio, API documentata e ToS chiari — requisito essenziale per una pipeline riproducibile in contesto accademico.
 
 ---
 
@@ -152,6 +158,7 @@ YOUTUBE_API_KEY=la_tua_chiave
 NEWS_API_KEY=la_tua_chiave
 GUARDIAN_API_KEY=la_tua_chiave
 NYT_API_KEY=la_tua_chiave
+BRAVE_API_KEY=la_tua_chiave
 
 # Opzionali — aumentano i limiti delle rispettive fonti
 STACKEXCHANGE_API_KEY=la_tua_chiave
@@ -389,6 +396,8 @@ In questo caso: il sentiment medio è leggermente negativo (-0.08) con alta disp
 
 **Lemmy / Stack Exchange:** la ricerca cross-istanza può produrre duplicati (es. lo stesso post federato su più istanze Lemmy). Il deduplicator li rimuove automaticamente via URL canonico.
 
+**Brave Search:** piano gratuito limitato a 20 risultati per query e 1 query/sec (rate limit applicato a livello API, non dal collector). Il campo `page_age` non è sempre presente nei risultati: quando assente, `date` resta `None` e il record contribuisce meno al `recency_score` dell'aggregator. `author` non è esposto in forma strutturata. Il peso `SOURCE_WEIGHTS["brave"]` è intenzionalmente basso (0.55) perché i risultati includono contenuti SEO eterogenei di qualità variabile.
+
 ---
 
 ## Struttura del progetto
@@ -416,7 +425,8 @@ web-reputational-analysis/
 │   ├── stackexchange_collector.py
 │   ├── mastodon_collector.py
 │   ├── lemmy_collector.py
-│   └── wikitalk_collector.py
+│   ├── wikitalk_collector.py
+│   └── brave_collector.py
 │
 ├── pipeline/                # Passi di trasformazione
 │   ├── runner.py            # PipelineRunner — orchestratore

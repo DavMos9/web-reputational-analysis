@@ -16,7 +16,7 @@ Grazie per l'interesse nel progetto. Ecco le linee guida per contribuire in modo
 ## Flusso di contribuzione
 
 1. **Apri una issue** prima di iniziare lavori significativi — usa i template in `.github/ISSUE_TEMPLATE/`.
-2. **Crea un branch** dal `main` con un nome descrittivo (es. `feat/reddit-collector`, `fix/gdelt-timeout`).
+2. **Crea un branch** dal `main` con un nome descrittivo (es. `feat/brave-collector`, `fix/gdelt-timeout`).
 3. **Implementa la modifica** rispettando le regole di architettura sotto.
 4. **Aggiorna la documentazione** se hai aggiunto o modificato comportamenti.
 5. **Apri una pull request** verso `main` con una descrizione chiara delle modifiche.

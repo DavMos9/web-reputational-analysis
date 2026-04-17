@@ -35,7 +35,7 @@ from config import (
     SOURCE_WEIGHT_DEFAULT,
     REPUTATION_WEIGHTS,
     RECENCY_HALF_LIFE_DAYS,
-    VOLUME_REFERENCE,
+    VOLUME_HALFSAT,
     TREND_THRESHOLD,
 )
 
@@ -69,7 +69,11 @@ class EntitySummary:
                             Range [0.0, 1.0].
         recency_score       Quanto sono recenti i record. Range [0.0, 1.0].
                             1.0 = tutti pubblicati oggi, 0.0 = tutti molto vecchi.
-        volume_score        Volume normalizzato con log-scaling. Range [0.0, 1.0].
+        volume_score        Volume normalizzato con saturazione asintotica.
+                            Range [0.0, 1.0): tende a 1.0 al crescere del numero
+                            di record, vale 0.5 a VOLUME_HALFSAT (default 100).
+                            Non satura con hard cap: resta discriminante anche
+                            su run molto grandi.
 
         reputation_score    Score composito finale. Range [0.0, 1.0].
                             Combinazione pesata di sentiment (mappato in [0,1]),
@@ -241,21 +245,34 @@ def _compute_recency_score(records: list[Record], reference_date: date | None = 
 
 def _compute_volume_score(record_count: int) -> float:
     """
-    Volume normalizzato con log-scaling.
+    Volume normalizzato con saturazione asintotica (Hill-on-log).
 
-    Formula: min(1.0, log(1 + count) / log(1 + reference))
+    Formula:
+        l = log(1 + count)
+        volume_score = l / (l + log(1 + VOLUME_HALFSAT))
 
-    Il log-scaling evita che poche fonti molto prolifiche dominino lo score:
-    passare da 10 a 20 record vale più che passare da 90 a 100.
+    Proprietà:
+        - count = 0                → 0.0
+        - count = VOLUME_HALFSAT   → 0.5   (punto di half-saturation)
+        - count → +∞               → 1.0   (asintoto, mai raggiunto)
+
+    Rispetto al vecchio `min(1.0, log(1+c)/log(1+ref))`, questa formula non
+    satura con un hard cap: run da 100 e da 5000 record producono
+    `volume_score` diversi, preservando la discriminabilità.
+
+    Il log preserva i rendimenti decrescenti (passare da 10 a 20 conta più
+    che passare da 90 a 100).
 
     Returns:
-        Score in [0.0, 1.0].
+        Score in [0.0, 1.0).
     """
     if record_count <= 0:
         return 0.0
 
-    ref = max(1, VOLUME_REFERENCE)
-    return round(min(1.0, math.log(1 + record_count) / math.log(1 + ref)), 6)
+    halfsat = max(1, VOLUME_HALFSAT)
+    l = math.log(1 + record_count)
+    denom = l + math.log(1 + halfsat)
+    return round(l / denom, 6)
 
 
 def _compute_trend(records: list[Record]) -> str:

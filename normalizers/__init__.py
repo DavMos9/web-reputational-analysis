@@ -35,5 +35,6 @@ import normalizers.stackexchange    # noqa: F401
 import normalizers.mastodon         # noqa: F401
 import normalizers.lemmy            # noqa: F401
 import normalizers.wikitalk         # noqa: F401
+import normalizers.brave            # noqa: F401
 
 __all__ = ["normalize", "normalize_all", "registered_sources"]

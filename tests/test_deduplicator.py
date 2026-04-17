@@ -60,6 +60,11 @@ class TestCanonicalUrl:
     def test_removes_fragment(self):
         assert _canonical_url("https://example.com/path#section") == "https://example.com/path"
 
+    def test_preserve_fragment_keeps_anchor(self):
+        """Con preserve_fragment=True il fragment va conservato (caso wikitalk)."""
+        url = "https://en.wikipedia.org/wiki/Talk:Donald_Trump#Current_consensus"
+        assert _canonical_url(url, preserve_fragment=True) == url.lower()
+
     def test_lowercases_scheme_and_host(self):
         assert _canonical_url("HTTPS://Example.COM/Path") == "https://example.com/path"
 
@@ -222,3 +227,57 @@ class TestDeduplicateEdgeCases:
         unique, removed = deduplicate(records)
         assert len(unique) == 2
         assert removed == 2
+
+
+# ---------------------------------------------------------------------------
+# Test: fragment preservation per wikitalk
+# ---------------------------------------------------------------------------
+
+class TestWikitalkFragmentPreservation:
+    """
+    Wikipedia Talk Pages usano lo stesso URL base con fragment #Section diversi.
+    Ogni sezione è una conversazione distinta → dedup NON deve collassarle.
+    """
+
+    def _talk_record(self, section: str, title: str) -> Record:
+        url = f"https://en.wikipedia.org/wiki/Talk:Donald_Trump#{section}"
+        return Record(
+            source="wikitalk",
+            query="Donald Trump",
+            target="Donald Trump",
+            title=title,
+            text="Discussion content for this specific section.",
+            date=None,
+            url=url,
+            domain="en.wikipedia.org",
+        )
+
+    def test_wikitalk_sections_are_preserved(self):
+        records = [
+            self._talk_record("Current_consensus", "[Talk] Donald Trump: Current consensus"),
+            self._talk_record("References", "[Talk] Donald Trump: References"),
+            self._talk_record("Several_issues", "[Talk] Donald Trump: Several issues"),
+        ]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 3
+        assert removed == 0
+
+    def test_wikitalk_true_duplicate_still_removed(self):
+        """Se due record wikitalk hanno lo stesso fragment, uno va rimosso comunque."""
+        records = [
+            self._talk_record("Current_consensus", "[Talk] Donald Trump: Current consensus"),
+            self._talk_record("Current_consensus", "[Talk] Donald Trump: Current consensus"),
+        ]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 1
+        assert removed == 1
+
+    def test_non_wikitalk_fragment_still_stripped(self):
+        """Per sorgenti diverse da wikitalk, il fragment è ancora scartato (regressione)."""
+        records = [
+            _record("https://example.com/article#intro", title="A"),
+            _record("https://example.com/article#conclusion", title="A dup"),
+        ]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 1
+        assert removed == 1

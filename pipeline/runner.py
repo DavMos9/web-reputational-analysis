@@ -18,12 +18,14 @@ senza che scriva nulla su disco.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from models import RawRecord, Record
 from pipeline.normalizer import normalize_all
 from pipeline.cleaner import clean_all, filter_quality
+from pipeline.date_filter import filter_by_date, parse_since
 from pipeline.deduplicator import deduplicate
 from pipeline.enricher import enrich_all
 from pipeline.aggregator import aggregate, EntitySummary
@@ -60,15 +62,27 @@ class PipelineConfig:
     Parametri di esecuzione della pipeline.
 
     Attributi:
-        target:           entità da analizzare (es. "Elon Musk").
-        queries:          lista di query di ricerca.
-        sources:          lista di source_id da interrogare
-                          (es. ["news", "gdelt"]). Se vuota usa tutte le sorgenti.
-        max_results:      numero massimo di risultati per collector per query.
-        save_raw:         se True, invoca raw_store.save() dopo la raccolta.
-        collector_kwargs: kwargs aggiuntivi per collector specifici, indicizzati
-                          per source_id. Es: {"news": {"language": "it"}}.
-                          Vengono passati a collector.collect() come **kwargs.
+        target:              entità da analizzare (es. "Elon Musk").
+        queries:             lista di query di ricerca.
+        sources:             lista di source_id da interrogare
+                             (es. ["news", "gdelt"]). Se vuota usa tutte le sorgenti.
+        max_results:         numero massimo di risultati per collector per query.
+        save_raw:            se True, invoca raw_store.save() dopo la raccolta.
+        collector_kwargs:    kwargs aggiuntivi per collector specifici, indicizzati
+                             per source_id. Es: {"news": {"language": "it"}}.
+                             Vengono passati a collector.collect() come **kwargs.
+        parallel_collectors: se True, esegue i collector in parallelo tramite
+                             ThreadPoolExecutor (una fetch HTTP per (source, query)).
+                             Tutti i collector sono indipendenti e I/O-bound, quindi
+                             il GIL non è un problema. Disattivare per debug.
+        max_workers:         numero massimo di thread concorrenti quando
+                             parallel_collectors=True. Deve essere >= 1.
+                             Con max_workers=1 il comportamento è equivalente
+                             a seriale.
+        since:               data minima 'YYYY-MM-DD'. Se impostata, i record
+                             con date anteriore vengono scartati dopo il cleaner.
+                             I record con date=None vengono mantenuti (cfr.
+                             pipeline/date_filter.py). None = nessun filtro.
     """
     target: str
     queries: list[str]
@@ -76,6 +90,9 @@ class PipelineConfig:
     max_results: int                = 20
     save_raw: bool                  = True
     collector_kwargs: dict[str, dict] = field(default_factory=dict)
+    parallel_collectors: bool       = True
+    max_workers: int                = 8
+    since: str | None               = None
 
     def __post_init__(self) -> None:
         if not self.target:
@@ -84,6 +101,11 @@ class PipelineConfig:
             raise ValueError("PipelineConfig.queries non può essere vuota")
         if self.max_results < 1:
             raise ValueError(f"PipelineConfig.max_results deve essere >= 1, ricevuto: {self.max_results}")
+        if self.max_workers < 1:
+            raise ValueError(f"PipelineConfig.max_workers deve essere >= 1, ricevuto: {self.max_workers}")
+        if self.since is not None:
+            # valida formato e normalizza (stringa rimane uguale se valida)
+            self.since = parse_since(self.since)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +182,13 @@ class PipelineRunner:
         records, skipped = filter_quality(records)
         log.info("Puliti: %d record validi, %d scartati per qualità.", len(records), skipped)
 
+        # 4c. Filtro temporale opzionale (--since). Va eseguito prima di dedup ed enrich
+        # per non sprecare lavoro su record fuori finestra.
+        if config.since:
+            records, dropped = filter_by_date(records, config.since)
+            log.info("Filtro temporale (>= %s): %d mantenuti, %d scartati.",
+                     config.since, len(records), dropped)
+
         # 5. Deduplicazione
         records, removed = deduplicate(records)
         log.info("Deduplicati: %d rimossi, %d record unici.", removed, len(records))
@@ -204,32 +233,110 @@ class PipelineRunner:
 
         Sorgenti attive: `config.sources` se specificato,
         altrimenti tutte le sorgenti nel registry.
+
+        Se `config.parallel_collectors` è True esegue i task in parallelo
+        via ThreadPoolExecutor; altrimenti esegue in modo seriale.
+        In entrambi i casi l'ordine dell'output è deterministico,
+        ricostruito dall'indice del task (source_index, query_index),
+        così i test e le analisi downstream restano riproducibili.
         """
         active_sources = config.sources if config.sources else list(self._registry)
-        all_raws: list[RawRecord] = []
 
-        for source_id in active_sources:
-            collector = self._registry.get(source_id)
-            if collector is None:
+        # Costruisce la lista dei task in ordine canonico.
+        # Ogni task è una tupla (task_index, source_id, query, extra_kwargs).
+        tasks: list[tuple[int, str, str, dict]] = []
+        for s_idx, source_id in enumerate(active_sources):
+            if source_id not in self._registry:
                 log.warning("Sorgente '%s' non trovata nel registry, ignorata.", source_id)
                 continue
-
             extra_kwargs = config.collector_kwargs.get(source_id, {})
+            for q_idx, query in enumerate(config.queries):
+                task_index = s_idx * len(config.queries) + q_idx
+                tasks.append((task_index, source_id, query, extra_kwargs))
 
-            for query in config.queries:
-                log.info("Raccolta da '%s' per query: '%s'", source_id, query)
-                try:
-                    raws = collector.collect(
-                        target=config.target,
-                        query=query,
-                        max_results=config.max_results,
-                        **extra_kwargs,
-                    )
-                    all_raws.extend(raws)
-                except Exception as e:
-                    log.error(
-                        "Errore collector '%s' / query '%s': %s",
-                        source_id, query, e,
-                    )
+        if not tasks:
+            return []
 
+        # Esecuzione: parallela (default) o seriale (fallback debug).
+        use_parallel = config.parallel_collectors and config.max_workers > 1
+        if use_parallel:
+            results = self._collect_parallel(config, tasks)
+        else:
+            results = self._collect_serial(config, tasks)
+
+        # Riordina per task_index → output deterministico.
+        results.sort(key=lambda r: r[0])
+        all_raws: list[RawRecord] = []
+        for _, raws in results:
+            all_raws.extend(raws)
         return all_raws
+
+    def _run_single_task(
+        self,
+        config: PipelineConfig,
+        source_id: str,
+        query: str,
+        extra_kwargs: dict,
+    ) -> list[RawRecord]:
+        """Esegue un singolo task collector.collect(). Isola gli errori."""
+        collector = self._registry[source_id]
+        log.info("Raccolta da '%s' per query: '%s'", source_id, query)
+        try:
+            return collector.collect(
+                target=config.target,
+                query=query,
+                max_results=config.max_results,
+                **extra_kwargs,
+            )
+        except Exception as e:
+            log.error("Errore collector '%s' / query '%s': %s", source_id, query, e)
+            return []
+
+    def _collect_serial(
+        self,
+        config: PipelineConfig,
+        tasks: list[tuple[int, str, str, dict]],
+    ) -> list[tuple[int, list[RawRecord]]]:
+        """Esecuzione seriale: utile per debug e test deterministici."""
+        out: list[tuple[int, list[RawRecord]]] = []
+        for task_index, source_id, query, extra_kwargs in tasks:
+            raws = self._run_single_task(config, source_id, query, extra_kwargs)
+            out.append((task_index, raws))
+        return out
+
+    def _collect_parallel(
+        self,
+        config: PipelineConfig,
+        tasks: list[tuple[int, str, str, dict]],
+    ) -> list[tuple[int, list[RawRecord]]]:
+        """
+        Esecuzione parallela via ThreadPoolExecutor.
+
+        I collector sono stateless per istanza e I/O-bound (HTTP): il threading
+        evita di sprecare tempo in attesa sulla rete. Eventuali eccezioni non
+        gestite da un collector vengono assorbite da _run_single_task.
+        """
+        workers = min(config.max_workers, len(tasks))
+        out: list[tuple[int, list[RawRecord]]] = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_to_index = {
+                pool.submit(
+                    self._run_single_task,
+                    config,
+                    source_id,
+                    query,
+                    extra_kwargs,
+                ): task_index
+                for task_index, source_id, query, extra_kwargs in tasks
+            }
+            for fut in as_completed(future_to_index):
+                task_index = future_to_index[fut]
+                try:
+                    raws = fut.result()
+                except Exception as e:
+                    # Safety net: _run_single_task già cattura, ma teniamolo
+                    # robusto a eventuali errori di serializzazione del future.
+                    log.error("Future fallito (task_index=%d): %s", task_index, e)
+                    raws = []
+                out.append((task_index, raws))
+        return out

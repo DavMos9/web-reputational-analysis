@@ -234,3 +234,86 @@ class TestPipelineRunnerExporters:
 
         # runner deve restituire i record anche se l'exporter ha fallito
         assert len(records) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineRunner — parallelizzazione _collect
+# ---------------------------------------------------------------------------
+
+class TestPipelineRunnerParallel:
+    """
+    Verifica che la parallelizzazione dei collector (ThreadPoolExecutor) produca
+    lo stesso output della modalità seriale, in ordine deterministico.
+    """
+
+    def test_serial_mode_preserves_output(self):
+        """parallel_collectors=False: flusso equivalente al comportamento seriale."""
+        c_news = _make_collector("news", returns=[_raw("news", url="https://a/1")])
+        c_gdelt = _make_collector("gdelt", returns=[_raw("gdelt", url="https://b/2")])
+        registry = {"news": c_news, "gdelt": c_gdelt}
+
+        runner = PipelineRunner(registry=registry)
+        records, _ = runner.run(_config(
+            sources=["news", "gdelt"],
+            parallel_collectors=False,
+        ))
+        assert len(records) == 2
+        # Con 2 sorgenti e 1 query l'ordine deterministico è [news, gdelt].
+        assert [r.source for r in records] == ["news", "gdelt"]
+
+    def test_parallel_and_serial_produce_same_output(self):
+        """Output parallelo e seriale identici (stesso ordine, stessi record)."""
+        c_news = _make_collector("news", returns=[
+            _raw("news", url="https://a/1"),
+            _raw("news", url="https://a/2"),
+        ])
+        c_gdelt = _make_collector("gdelt", returns=[_raw("gdelt", url="https://b/1")])
+        registry = {"news": c_news, "gdelt": c_gdelt}
+
+        runner = PipelineRunner(registry=registry)
+        records_par, _ = runner.run(_config(
+            sources=["news", "gdelt"],
+            queries=["q1", "q2"],
+            parallel_collectors=True,
+            max_workers=4,
+        ))
+
+        # Reset dei mock prima della seconda esecuzione: le collect() vengono
+        # richiamate e i counter vanno azzerati per evitare side-effect.
+        c_news.reset_mock()
+        c_gdelt.reset_mock()
+        c_news.collect.return_value = [
+            _raw("news", url="https://a/1"),
+            _raw("news", url="https://a/2"),
+        ]
+        c_gdelt.collect.return_value = [_raw("gdelt", url="https://b/1")]
+
+        records_ser, _ = runner.run(_config(
+            sources=["news", "gdelt"],
+            queries=["q1", "q2"],
+            parallel_collectors=False,
+        ))
+
+        # URL in ordine deterministico: stessa sequenza indipendentemente
+        # dalla modalità di esecuzione.
+        urls_par = [r.url for r in records_par]
+        urls_ser = [r.url for r in records_ser]
+        assert urls_par == urls_ser
+
+    def test_max_workers_one_forces_serial_behaviour(self):
+        """max_workers=1 deve comportarsi come seriale (nessun pool reale)."""
+        c = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": c}
+        runner = PipelineRunner(registry=registry)
+
+        records, _ = runner.run(_config(
+            sources=["news"],
+            parallel_collectors=True,
+            max_workers=1,
+        ))
+        assert len(records) == 1
+
+    def test_max_workers_zero_raises(self):
+        """max_workers < 1 viene rifiutato in PipelineConfig.__post_init__."""
+        with pytest.raises(ValueError, match="max_workers"):
+            PipelineConfig(target="T", queries=["q"], max_workers=0)

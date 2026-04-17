@@ -18,7 +18,7 @@ import pytest
 
 from models import RawRecord, Record
 from pipeline.normalizer import normalize, normalize_all
-from normalizers.utils import to_date, to_url
+from normalizers.utils import to_date, to_url, strip_html
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +90,35 @@ class TestToUrl:
         """Percorso senza host (es. '/path/only') non produce un URL valido."""
         # "/path/only" → "https:///path/only" → netloc vuoto → ""
         assert to_url("/path/only") == ""
+
+
+# ---------------------------------------------------------------------------
+# Test: strip_html
+# ---------------------------------------------------------------------------
+
+class TestStripHtml:
+    def test_removes_strong_tag(self):
+        assert strip_html("Foo <strong>bar</strong> baz") == "Foo bar baz"
+
+    def test_removes_multiple_tags(self):
+        text = "<p>Hello <em>world</em>, <b>again</b>.</p>"
+        assert strip_html(text) == "Hello world, again."
+
+    def test_decodes_entities(self):
+        assert strip_html("Tom &amp; Jerry") == "Tom & Jerry"
+        assert strip_html("&lt;not a tag&gt;") == "<not a tag>"
+
+    def test_strips_surrounding_whitespace(self):
+        assert strip_html("  <span>x</span>  ") == "x"
+
+    def test_none_returns_empty(self):
+        assert strip_html(None) == ""
+
+    def test_empty_returns_empty(self):
+        assert strip_html("") == ""
+
+    def test_plain_text_untouched(self):
+        assert strip_html("No markup here.") == "No markup here."
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +291,135 @@ class TestNormalizeNyt:
     def test_missing_url_returns_none(self):
         raw = _raw("nyt", {"headline": {"main": "No URL"}})
         assert normalize(raw) is None
+
+
+class TestNormalizeBrave:
+    def test_full_payload(self):
+        raw = _raw("brave", {
+            "title":       "Brave Result",
+            "url":         "https://example.com/page",
+            "description": "This is a sufficiently long description returned by Brave.",
+            "page_age":    "2026-04-10T08:00:00",
+            "language":    "en",
+            "meta_url":    {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+
+        assert record is not None
+        assert record.source == "brave"
+        assert record.title == "Brave Result"
+        assert record.url == "https://example.com/page"
+        assert record.date == "2026-04-10"
+        assert record.language == "en"
+        assert record.domain == "example.com"
+        assert record.author is None
+
+    def test_missing_url_returns_none(self):
+        raw = _raw("brave", {"title": "No URL", "description": "x"})
+        assert normalize(raw) is None
+
+    def test_missing_page_age_returns_none_date(self):
+        """Brave non sempre fornisce page_age: date=None, record comunque valido."""
+        raw = _raw("brave", {
+            "title":       "No date result",
+            "url":         "https://example.com/x",
+            "description": "A fairly long description that exceeds the minimum threshold.",
+            "meta_url":    {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.date is None
+
+    def test_short_description_merged_with_extra_snippets(self):
+        """Description corta → testo arricchito con extra_snippets."""
+        raw = _raw("brave", {
+            "title":       "Short",
+            "url":         "https://example.com/x",
+            "description": "Too short.",
+            "extra_snippets": [
+                "First additional snippet giving more context.",
+                "Second snippet.",
+            ],
+            "meta_url": {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert "Too short." in record.text
+        assert "First additional snippet" in record.text
+        assert "Second snippet" in record.text
+
+    def test_long_description_not_altered(self):
+        """Description lunga → extra_snippets ignorati per non diluire il segnale."""
+        long_desc = "A description long enough to not require merging any extra snippets because it already exceeds the threshold."
+        raw = _raw("brave", {
+            "title":       "Long",
+            "url":         "https://example.com/x",
+            "description": long_desc,
+            "extra_snippets": ["Should not appear."],
+            "meta_url": {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.text == long_desc
+        assert "Should not appear" not in record.text
+
+    def test_domain_fallback_from_url_when_meta_missing(self):
+        """Se meta_url manca, dominio estratto dall'URL."""
+        raw = _raw("brave", {
+            "title":       "No meta",
+            "url":         "https://foo.bar.com/path",
+            "description": "Some descriptive text long enough to pass cleaner checks easily.",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.domain == "foo.bar.com"
+
+    def test_html_tags_stripped_from_description(self):
+        """Brave restituisce <strong>...</strong> per evidenziare keyword: deve essere rimosso."""
+        raw = _raw("brave", {
+            "title":       "Result",
+            "url":         "https://example.com/x",
+            "description": "Donald John Trump is the <strong>47th president of the United States</strong>. Born in 1946.",
+            "meta_url":    {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert "<strong>" not in record.text
+        assert "</strong>" not in record.text
+        assert "47th president of the United States" in record.text
+
+    def test_html_tags_stripped_from_extra_snippets(self):
+        """Anche gli extra_snippets, quando usati come fallback, devono essere puliti."""
+        raw = _raw("brave", {
+            "title":       "T",
+            "url":         "https://example.com/x",
+            "description": "Too short.",
+            "extra_snippets": [
+                "First <em>highlighted</em> snippet.",
+                "Second <b>bold</b> snippet.",
+            ],
+            "meta_url": {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert "<em>" not in record.text
+        assert "<b>" not in record.text
+        assert "highlighted" in record.text
+        assert "bold" in record.text
+
+    def test_html_entities_decoded(self):
+        """Le entità HTML devono essere decodificate (&amp; → &)."""
+        raw = _raw("brave", {
+            "title":       "Tom &amp; Jerry",
+            "url":         "https://example.com/x",
+            "description": "An article about <strong>Tom &amp; Jerry</strong> and their adventures together.",
+            "meta_url":    {"hostname": "example.com"},
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.title == "Tom & Jerry"
+        assert "Tom & Jerry" in record.text
+        assert "&amp;" not in record.text
 
 
 # ---------------------------------------------------------------------------

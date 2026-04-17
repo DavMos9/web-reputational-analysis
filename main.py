@@ -17,6 +17,7 @@ from pathlib import Path
 from collectors import build_registry
 from exporters import JsonExporter, CsvExporter, SummaryJsonExporter
 from pipeline import PipelineRunner, PipelineConfig
+from pipeline.date_filter import parse_since
 from storage import RawStore
 from utils import now_timestamp
 
@@ -77,6 +78,15 @@ def parse_args() -> argparse.Namespace:
             "sottoinsieme limitato di lingue nel piano gratuito."
         ),
     )
+    parser.add_argument(
+        "--since", type=parse_since, default=None, metavar="YYYY-MM-DD",
+        help=(
+            "Scarta i record con data anteriore. Formato 'YYYY-MM-DD'. "
+            "I record senza data vengono mantenuti. "
+            "Utile per analisi focalizzate su finestre temporali recenti: "
+            "migliora anche la significatività del campo 'trend' nel summary."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -96,6 +106,7 @@ def main() -> None:
         collector_kwargs={
             "news": {"language": args.news_language},
         },
+        since=args.since,
     )
 
     runner = PipelineRunner(

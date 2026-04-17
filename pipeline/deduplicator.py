@@ -25,13 +25,21 @@ _TRACKING_PARAMS = {
     "mc_eid", "mc_cid", "_ga",
 }
 
+# Sorgenti per cui il fragment URL è semanticamente rilevante e NON va scartato
+# nella canonicalizzazione. Esempio: Wikipedia Talk Pages, dove ogni sezione
+# (#Section_title) è una conversazione distinta — tutte sulla stessa pagina,
+# ma ognuna è un record autonomo.
+_FRAGMENT_PRESERVING_SOURCES = frozenset({"wikitalk"})
 
-def _canonical_url(url: str) -> str:
+
+def _canonical_url(url: str, *, preserve_fragment: bool = False) -> str:
     """
     Normalizza un URL per la comparazione:
     - lowercase scheme e host
     - rimuove parametri di tracking
-    - rimuove trailing slash e fragment
+    - rimuove trailing slash
+    - scarta il fragment, eccetto quando `preserve_fragment=True` (es. wikitalk:
+      `#Section` identifica la conversazione).
     """
     if not url:
         return ""
@@ -46,7 +54,7 @@ def _canonical_url(url: str) -> str:
             parsed.path.rstrip("/"),
             parsed.params,
             clean_query,
-            "",  # ignora fragment
+            parsed.fragment if preserve_fragment else "",
         ))
     except Exception:
         return url.lower().strip()
@@ -81,7 +89,8 @@ def deduplicate(records: list[Record]) -> tuple[list[Record], int]:
     removed = 0
 
     for record in records:
-        url_key = _canonical_url(record.url)
+        preserve_fragment = record.source in _FRAGMENT_PRESERVING_SOURCES
+        url_key = _canonical_url(record.url, preserve_fragment=preserve_fragment)
         title_key = _canonical_title(record.title)
         domain_key = (record.domain or "").lower().strip()
 

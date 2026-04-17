@@ -8,7 +8,8 @@ Design:
 - Il dispatcher normalize() è completamente ignaro delle sorgenti conosciute:
   non contiene alcun if/elif né riferimento diretto ai moduli sorgente.
 - Aggiungere una sorgente: creare normalizers/<source>.py + aggiungere l'import
-  in normalizers/__init__.py. Il registry non va mai modificato.
+  in normalizers/__init__.py (unico file "indice" da aggiornare).
+  Questo modulo (registry.py) non va mai toccato.
 - Rimuovere una sorgente: rimuovere l'import in normalizers/__init__.py.
 """
 
@@ -36,7 +37,7 @@ def register(source_name: str, fn: NormalizerFn) -> None:
 
     Args:
         source_name: identificatore della sorgente (deve corrispondere
-                     a RawRecord.source, es. "news", "reddit").
+                     a RawRecord.source, es. "news", "gdelt").
         fn:          funzione (RawRecord) → Record | None.
     """
     if source_name in _REGISTRY:
