@@ -42,6 +42,16 @@ BASE_DIR  = Path(__file__).parent
 REGISTRY  = build_registry()           # lazy: importa i collector solo qui
 ALL_SOURCES = list(REGISTRY.keys())
 
+# Fonti opt-in: non incluse nel set di default, ma richiamabili esplicitamente
+# via --sources. Usate per fonti strutturalmente inadatte alla maggior parte
+# dei target ma utili in casi specifici.
+#   - stackexchange: full-text match sul body delle domande, quindi nomi propri
+#     risultano spesso come stringhe di test in esempi di codice (rumore).
+#     Ha senso solo per target tech (librerie, framework, prodotti software).
+OPT_IN_SOURCES = frozenset({"stackexchange"})
+
+DEFAULT_SOURCES = [s for s in ALL_SOURCES if s not in OPT_IN_SOURCES]
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -59,8 +69,12 @@ def parse_args() -> argparse.Namespace:
         help="Una o più query di ricerca",
     )
     parser.add_argument(
-        "--sources", nargs="+", default=ALL_SOURCES, choices=ALL_SOURCES,
-        help=f"Fonti da interrogare (default: tutte). Scelte: {', '.join(ALL_SOURCES)}",
+        "--sources", nargs="+", default=DEFAULT_SOURCES, choices=ALL_SOURCES,
+        help=(
+            f"Fonti da interrogare. Default: {', '.join(DEFAULT_SOURCES)}. "
+            f"Opt-in (richiede invocazione esplicita): {', '.join(sorted(OPT_IN_SOURCES))}. "
+            f"Scelte valide: {', '.join(ALL_SOURCES)}."
+        ),
     )
     parser.add_argument(
         "--max-results", type=int, default=20,

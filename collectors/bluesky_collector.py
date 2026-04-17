@@ -36,6 +36,11 @@ _SEARCH_URL  = f"{_BASE_URL}/app.bsky.feed.searchPosts"
 # Limite max per singola richiesta (imposto dall'API)
 _MAX_LIMIT = 100
 
+# Timeout HTTP unico per tutte le chiamate Bluesky (login + search).
+# Valore conservativo (20s) perché l'endpoint searchPosts può essere lento sotto
+# carico: 10s causavano timeout sporadici su target con alto volume di post.
+_HTTP_TIMEOUT = 20.0
+
 
 class BlueskyCollector(BaseCollector):
     source_id = "bluesky"
@@ -81,7 +86,7 @@ class BlueskyCollector(BaseCollector):
 
         try:
             response = requests.get(
-                _SEARCH_URL, params=params, headers=headers, timeout=10
+                _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT
             )
             # Token scaduto → rigenera una volta
             if response.status_code == 401:
@@ -92,7 +97,7 @@ class BlueskyCollector(BaseCollector):
                     return []
                 headers = {"Authorization": f"Bearer {token}"}
                 response = requests.get(
-                    _SEARCH_URL, params=params, headers=headers, timeout=10
+                    _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT
                 )
             response.raise_for_status()
             posts = response.json().get("posts", [])
@@ -121,7 +126,7 @@ class BlueskyCollector(BaseCollector):
             response = requests.post(
                 _SESSION_URL,
                 json={"identifier": BLUESKY_HANDLE, "password": BLUESKY_APP_PASSWORD},
-                timeout=10,
+                timeout=_HTTP_TIMEOUT,
             )
             response.raise_for_status()
             self._access_jwt = response.json()["accessJwt"]

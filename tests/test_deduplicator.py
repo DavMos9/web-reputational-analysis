@@ -281,3 +281,75 @@ class TestWikitalkFragmentPreservation:
         unique, removed = deduplicate(records)
         assert len(unique) == 1
         assert removed == 1
+
+
+# ---------------------------------------------------------------------------
+# Test: sorgenti parent-child (titolo ereditato dal contenitore)
+# ---------------------------------------------------------------------------
+
+class TestYoutubeCommentsDedup:
+    """
+    Tutti i commenti di uno stesso video YouTube ereditano il titolo del video.
+    Il livello 2 del dedup (title+domain) li collasserebbe erroneamente a uno
+    solo: per questa fonte il livello 2 va disattivato. L'identità è nel
+    query-param `lc=<comment_id>` dell'URL (livello 1).
+    """
+
+    def _yt_comment(self, comment_id: str, text: str = "A distinct comment.") -> Record:
+        return Record(
+            source="youtube_comments",
+            query="Donald Trump",
+            target="Donald Trump",
+            title="BREAKING NEWS: Trump Takes Reporters' Questions",
+            text=text,
+            date="2026-04-16",
+            url=f"https://www.youtube.com/watch?v=2aa_6C4x8rc&lc={comment_id}",
+            domain="youtube.com",
+        )
+
+    def test_comments_same_video_are_kept(self):
+        """18 commenti allo stesso video → tutti e 18 sopravvivono."""
+        records = [self._yt_comment(f"comment_{i}", f"Commento numero {i}") for i in range(18)]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 18
+        assert removed == 0
+
+    def test_comment_vs_parent_video_both_kept(self):
+        """Il video parent (source=youtube) e i suoi commenti (source=youtube_comments)
+        condividono titolo+dominio: il video NON deve oscurare i commenti."""
+        video = Record(
+            source="youtube",
+            query="Donald Trump",
+            target="Donald Trump",
+            title="BREAKING NEWS: Trump Takes Reporters' Questions",
+            text="Video description.",
+            date="2026-04-16",
+            url="https://www.youtube.com/watch?v=2aa_6C4x8rc",
+            domain="youtube.com",
+        )
+        comments = [self._yt_comment(f"c_{i}") for i in range(5)]
+        records = [video, *comments]
+        unique, removed = deduplicate(records)
+        # video (1) + 5 commenti distinti per URL = 6
+        assert len(unique) == 6
+        assert removed == 0
+
+    def test_comment_exact_url_duplicate_still_removed(self):
+        """Livello 1 (URL canonico) resta attivo: URL identico → duplicato rimosso."""
+        records = [
+            self._yt_comment("same_id", text="originale"),
+            self._yt_comment("same_id", text="duplicato"),
+        ]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 1
+        assert removed == 1
+
+    def test_other_source_title_dedup_still_active(self):
+        """Regressione: per fonti NON whitelistate, il dedup livello 2 resta attivo."""
+        records = [
+            _record("https://a.com/1", title="Stesso Titolo", domain="example.com", source="news"),
+            _record("https://a.com/2", title="Stesso Titolo", domain="example.com", source="news"),
+        ]
+        unique, removed = deduplicate(records)
+        assert len(unique) == 1
+        assert removed == 1
