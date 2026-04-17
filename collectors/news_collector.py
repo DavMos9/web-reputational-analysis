@@ -5,10 +5,14 @@ Collector per NewsAPI (https://newsapi.org).
 Piano gratuito: 100 richieste/giorno, notizie degli ultimi 30 giorni.
 """
 
+import logging
+
 import requests
 from config import NEWS_API_KEY
 from models import RawRecord
 from collectors.base import BaseCollector
+
+log = logging.getLogger(__name__)
 
 BASE_URL = "https://newsapi.org/v2/everything"
 
@@ -42,8 +46,26 @@ class NewsCollector(BaseCollector):
 
         try:
             response = requests.get(BASE_URL, params=params, timeout=10)
+
+            if response.status_code == 429:
+                log.warning(
+                    "[NewsCollector] Limite giornaliero raggiunto (HTTP 429). "
+                    "Piano gratuito: 100 req/giorno. Riprova domani o passa a un piano superiore."
+                )
+                return []
+
             response.raise_for_status()
             data = response.json()
+
+            # Segnala se si è vicini al limite (campo 'code' nel body di NewsAPI)
+            if data.get("status") == "error":
+                log.warning(
+                    "[NewsCollector] Errore API: code='%s', message='%s'",
+                    data.get("code", "unknown"),
+                    data.get("message", ""),
+                )
+                return []
+
         except requests.RequestException as e:
             self._log_error(query, e)
             return []

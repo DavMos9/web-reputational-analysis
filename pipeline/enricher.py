@@ -228,203 +228,225 @@ def resolve_language(record: Record, analysis_text: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment analysis — singleton lazy del modello
+# Enricher — classe con dependency injection
 # ---------------------------------------------------------------------------
 
-# Singleton del modello: caricato al primo utilizzo, mai ricaricato.
-_sentiment_pipeline: Any = None
-_sentiment_pipeline_initialized: bool = False
+# Sentinel: distingue "pipeline non fornita → lazy load" da
+# "pipeline fornita esplicitamente come None → nessun modello".
+_UNSET: object = object()
 
 
-def _get_sentiment_pipeline() -> Any | None:
+class Enricher:
     """
-    Carica e restituisce il pipeline HuggingFace per il sentiment analysis.
+    Esegue language detection e sentiment analysis su una lista di Record.
 
-    Utilizza un singleton: il modello viene caricato una sola volta alla
-    prima chiamata e riutilizzato per tutte le chiamate successive.
-    Se il caricamento fallisce, il fallimento viene registrato e None
-    viene restituito per tutte le chiamate successive (no retry).
+    Design:
+    - Il modello di sentiment viene caricato in modo lazy alla prima chiamata
+      effettiva, non all'istanziazione della classe.
+    - Se `sentiment_pipeline` viene fornito nel costruttore, viene usato
+      direttamente senza caricamento (utile per test e ambienti senza GPU).
+    - Il Record originale non viene mai mutato (dataclasses.replace).
 
-    Returns:
-        Pipeline transformers configurato per sentiment-analysis,
-        oppure None se transformers/torch non sono disponibili.
+    Uso in produzione:
+        enricher = Enricher()
+        records = enricher.enrich_all(records)
+
+    Uso nei test (dependency injection):
+        mock_pipe = lambda text: [[{"label": "positive", "score": 0.9}, ...]]
+        enricher = Enricher(sentiment_pipeline=mock_pipe)
     """
-    global _sentiment_pipeline, _sentiment_pipeline_initialized
 
-    if _sentiment_pipeline_initialized:
-        return _sentiment_pipeline
+    def __init__(self, sentiment_pipeline: Any = _UNSET) -> None:
+        """
+        Args:
+            sentiment_pipeline: controlla il comportamento del modello di sentiment.
+                - omesso (default):           lazy load alla prima chiamata.
+                - pipeline HuggingFace reale: usata direttamente, no lazy load.
+                                              Utile in produzione per condividere
+                                              un modello già caricato.
+                - None esplicito:             nessun modello disponibile, tutte le
+                                              chiamate a analyze_sentiment() → None.
+                                              Utile nei test per disabilitare NLP.
+        """
+        if sentiment_pipeline is _UNSET:
+            self._pipeline: Any = None
+            self._pipeline_initialized: bool = False   # lazy: carica al primo uso
+        else:
+            self._pipeline = sentiment_pipeline
+            self._pipeline_initialized = True          # già deciso: no lazy load
 
-    # Segna come inizializzato prima del tentativo per evitare retry su errori
-    _sentiment_pipeline_initialized = True
+    def _get_pipeline(self) -> Any | None:
+        """
+        Carica il modello HuggingFace la prima volta che viene richiesto.
 
-    try:
-        import logging as _logging
-        from transformers import pipeline as hf_pipeline
+        Se il caricamento fallisce, imposta il pipeline a None e non ritenta
+        nelle chiamate successive (fail-fast, no retry).
 
-        # XLM-RoBERTa emette un LOAD REPORT benigno su `position_ids`; lo sopprimo
-        # durante il caricamento e ripristino il livello originale dopo.
-        _modeling_logger = _logging.getLogger("transformers.modeling_utils")
-        _prev_level = _modeling_logger.level
-        _modeling_logger.setLevel(_logging.ERROR)
+        Returns:
+            Pipeline transformers configurato, oppure None se non disponibile.
+        """
+        if self._pipeline_initialized:
+            return self._pipeline
 
+        self._pipeline_initialized = True
+
+        try:
+            import logging as _logging
+            from transformers import pipeline as hf_pipeline
+
+            # XLM-RoBERTa emette un LOAD REPORT benigno su `position_ids`; lo sopprimo
+            # durante il caricamento e ripristino il livello originale dopo.
+            _modeling_logger = _logging.getLogger("transformers.modeling_utils")
+            _prev_level = _modeling_logger.level
+            _modeling_logger.setLevel(_logging.ERROR)
+
+            log.info(
+                "Caricamento modello sentiment '%s' (primo utilizzo)...",
+                _SENTIMENT_MODEL,
+            )
+            self._pipeline = hf_pipeline(
+                task="sentiment-analysis",
+                model=_SENTIMENT_MODEL,
+                top_k=None,      # Restituisce scores per tutti i label
+                truncation=True,
+                max_length=512,  # Limite token; testi più lunghi vengono troncati
+            )
+
+            _modeling_logger.setLevel(_prev_level)
+            log.info("Modello sentiment caricato correttamente.")
+
+        except ImportError:
+            log.warning(
+                "transformers o torch non installati. Sentiment analysis disabilitata. "
+                "Installare con: pip install transformers torch"
+            )
+            self._pipeline = None
+
+        except Exception as exc:
+            log.error(
+                "Errore nel caricamento del modello sentiment '%s': %s",
+                _SENTIMENT_MODEL, exc,
+            )
+            self._pipeline = None
+
+        return self._pipeline
+
+    def analyze_sentiment(self, text: str, language: str | None) -> float | None:
+        """
+        Calcola lo score di sentiment del testo con XLM-RoBERTa multilingue.
+
+        Score output: float in [-1.0, 1.0], calcolato come P(positive) - P(negative).
+        Questa formula incorpora l'incertezza: un record con P(pos)=0.4, P(neg)=0.1
+        riceve +0.3, non +1.0.
+
+        Args:
+            text:     testo da analizzare (≥ _MIN_LEN_SENTIMENT caratteri).
+            language: codice ISO 639-1. Se lingua non supportata → None.
+
+        Returns:
+            Score float in [-1.0, 1.0], oppure None se testo troppo corto,
+            lingua non supportata, modello non disponibile, o errore durante inferenza.
+        """
+        if len(text) < _MIN_LEN_SENTIMENT:
+            return None
+
+        if language is not None and language not in _SENTIMENT_SUPPORTED_LANGS:
+            log.debug(
+                "Lingua '%s' non supportata dal modello sentiment. Campo non calcolato.",
+                language,
+            )
+            return None
+
+        pipe = self._get_pipeline()
+        if pipe is None:
+            return None
+
+        try:
+            raw = pipe(text)
+            label_scores: list[dict] = raw[0] if raw and isinstance(raw[0], list) else raw
+
+            score_map: dict[str, float] = {
+                item["label"].lower(): float(item["score"])
+                for item in label_scores
+            }
+
+            positive = score_map.get("positive", 0.0)
+            negative = score_map.get("negative", 0.0)
+
+            return round(max(-1.0, min(1.0, positive - negative)), 6)
+
+        except Exception as exc:
+            log.error("Errore durante l'inferenza del sentiment: %s", exc)
+            return None
+
+    def enrich_record(self, record: Record) -> Record:
+        """
+        Arricchisce un singolo Record con language detection e sentiment analysis.
+
+        Flusso:
+        1. Costruisce il testo migliore (title + text).
+        2. Determina la lingua (sorgente normalizzata oppure langdetect).
+        3. Calcola il sentiment (se lingua supportata e testo sufficiente).
+        4. Restituisce un nuovo Record aggiornato (originale invariato).
+        """
+        analysis_text = build_analysis_text(record)
+
+        lang = resolve_language(record, analysis_text)
+        sentiment = self.analyze_sentiment(analysis_text, lang) if analysis_text else None
+
+        updates: dict = {}
+        if lang != record.language:
+            updates["language"] = lang
+        if sentiment != record.sentiment:
+            updates["sentiment"] = sentiment
+
+        return replace(record, **updates) if updates else record
+
+    def enrich_all(self, records: list[Record]) -> list[Record]:
+        """
+        Arricchisce una lista di Record, restituendo record invariati per quelli
+        per cui language e sentiment non sono calcolabili.
+
+        Args:
+            records: lista di Record dopo deduplicate.
+
+        Returns:
+            Lista di Record arricchiti (stesso ordine dell'input).
+        """
+        enriched = [self.enrich_record(r) for r in records]
+
+        with_lang = sum(1 for r in enriched if r.language is not None)
+        with_sentiment = sum(1 for r in enriched if r.sentiment is not None)
         log.info(
-            "Caricamento modello sentiment '%s' (primo utilizzo)...",
-            _SENTIMENT_MODEL,
+            "Enrichment: %d/%d record con language, %d/%d con sentiment.",
+            with_lang, len(enriched), with_sentiment, len(enriched),
         )
-        _sentiment_pipeline = hf_pipeline(
-            task="sentiment-analysis",
-            model=_SENTIMENT_MODEL,
-            top_k=None,      # Restituisce scores per tutti i label (negative/neutral/positive)
-            truncation=True,
-            max_length=512,  # Limite token del modello; testi più lunghi vengono troncati
-        )
+        return enriched
 
-        _modeling_logger.setLevel(_prev_level)
-        log.info("Modello sentiment caricato correttamente.")
 
-    except ImportError:
-        log.warning(
-            "transformers o torch non installati. Sentiment analysis disabilitata. "
-            "Installare con: pip install transformers torch"
-        )
-        _sentiment_pipeline = None
+# ---------------------------------------------------------------------------
+# Istanza default e funzioni module-level (backward compatibility)
+# ---------------------------------------------------------------------------
 
-    except Exception as exc:
-        log.error(
-            "Errore nel caricamento del modello sentiment '%s': %s",
-            _SENTIMENT_MODEL, exc,
-        )
-        _sentiment_pipeline = None
-
-    return _sentiment_pipeline
+# Singleton condiviso per l'uso diretto delle funzioni module-level.
+# Runner e altri consumer che usano Enricher() esplicito non lo usano.
+_default_enricher: Enricher = Enricher()
 
 
 def analyze_sentiment(text: str, language: str | None) -> float | None:
-    """
-    Calcola lo score di sentiment del testo con XLM-RoBERTa multilingue.
-
-    Lingue supportate: ar, en, fr, de, hi, it, pt, es.
-    Per lingue non in questo set restituisce None (non un errore).
-
-    Score output: float in [-1.0, 1.0]
-        - Calcolo: P(positive) - P(negative)
-        - Positivo → sentiment favorevole
-        - Negativo → sentiment critico/avverso
-        - ~0.0 → neutro o bilanciato
-
-    Questa formula è preferibile a usare direttamente la classe dominante
-    perché incorpora l'incertezza del modello: un record con P(pos)=0.4,
-    P(neu)=0.5, P(neg)=0.1 riceve score +0.3, non +1.0.
-
-    Args:
-        text:     testo da analizzare (idealmente almeno 15 caratteri).
-        language: codice ISO 639-1. Se None → il modello viene comunque
-                  invocato (XLM-RoBERTa gestisce input senza lingua esplicita).
-                  Se lingua non supportata → None senza invocare il modello.
-
-    Returns:
-        Score float in [-1.0, 1.0], oppure None se:
-        - testo troppo corto
-        - lingua non supportata dal modello
-        - modello non disponibile
-        - errore durante l'inferenza
-    """
-    if len(text) < _MIN_LEN_SENTIMENT:
-        return None
-
-    # Se la lingua è nota e non supportata, non invocare il modello
-    if language is not None and language not in _SENTIMENT_SUPPORTED_LANGS:
-        log.debug(
-            "Lingua '%s' non supportata dal modello sentiment. Campo non calcolato.",
-            language,
-        )
-        return None
-
-    pipe = _get_sentiment_pipeline()
-    if pipe is None:
-        return None
-
-    try:
-        # Il pipeline con top_k=None restituisce una lista di liste:
-        # [[{"label": "positive", "score": 0.9}, {"label": "neutral", ...}, ...]]
-        raw = pipe(text)
-        label_scores: list[dict] = raw[0] if raw and isinstance(raw[0], list) else raw
-
-        score_map: dict[str, float] = {
-            item["label"].lower(): float(item["score"])
-            for item in label_scores
-        }
-
-        positive = score_map.get("positive", 0.0)
-        negative = score_map.get("negative", 0.0)
-
-        # Clamping difensivo per compensare floating point imprecision
-        score = max(-1.0, min(1.0, positive - negative))
-        return round(score, 6)  # 6 cifre decimali
-
-    except Exception as exc:
-        log.error("Errore durante l'inferenza del sentiment: %s", exc)
-        return None
+    """Wrapper module-level → delega a _default_enricher."""
+    return _default_enricher.analyze_sentiment(text, language)
 
 
 # ---------------------------------------------------------------------------
-# Entry point pubblici
+# Entry point pubblici (module-level, backward compatible)
 # ---------------------------------------------------------------------------
 
 def enrich_record(record: Record) -> Record:
-    """
-    Arricchisce un singolo Record con language detection e sentiment analysis.
-
-    Flusso interno:
-    1. Costruisce il testo migliore disponibile (title + text).
-    2. Determina la lingua (sorgente normalizzata oppure langdetect).
-    3. Calcola il sentiment (se lingua supportata e testo sufficiente).
-    4. Restituisce un nuovo Record aggiornato.
-
-    Il Record originale non viene mai modificato (uso di dataclasses.replace).
-    I campi già valorizzati nel Record vengono sovrascritti solo se il nuovo
-    valore è diverso (evita replace() inutili).
-
-    Args:
-        record: Record normalizzato, pulito e deduplicato.
-
-    Returns:
-        Nuovo Record con language e sentiment aggiornati.
-    """
-    analysis_text = build_analysis_text(record)
-
-    lang = resolve_language(record, analysis_text)
-    sentiment = analyze_sentiment(analysis_text, lang) if analysis_text else None
-
-    updates: dict = {}
-    if lang != record.language:
-        updates["language"] = lang
-    if sentiment != record.sentiment:
-        updates["sentiment"] = sentiment
-
-    return replace(record, **updates) if updates else record
+    """Wrapper module-level → delega a _default_enricher."""
+    return _default_enricher.enrich_record(record)
 
 
 def enrich_all(records: list[Record]) -> list[Record]:
-    """
-    Arricchisce una lista di Record applicando enrich_record() a ciascuno.
-
-    I record per cui language e sentiment non possono essere calcolati
-    (testo troppo corto, lingua non supportata, dipendenze mancanti)
-    vengono restituiti invariati, con i campi a None.
-
-    Args:
-        records: lista di Record dopo deduplicate.
-
-    Returns:
-        Lista di Record arricchiti (stesso ordine dell'input).
-    """
-    enriched = [enrich_record(r) for r in records]
-
-    with_lang = sum(1 for r in enriched if r.language is not None)
-    with_sentiment = sum(1 for r in enriched if r.sentiment is not None)
-    log.info(
-        "Enrichment: %d/%d record con language, %d/%d con sentiment.",
-        with_lang, len(enriched), with_sentiment, len(enriched),
-    )
-    return enriched
+    """Wrapper module-level → delega a _default_enricher."""
+    return _default_enricher.enrich_all(records)

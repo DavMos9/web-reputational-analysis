@@ -11,7 +11,6 @@ Esempi:
 """
 
 import argparse
-import logging
 from pathlib import Path
 
 from collectors import build_registry
@@ -19,21 +18,12 @@ from exporters import JsonExporter, CsvExporter, SummaryJsonExporter
 from pipeline import PipelineRunner, PipelineConfig
 from pipeline.date_filter import parse_since
 from storage import RawStore
-from utils import now_timestamp
+from utils import now_timestamp, configure_logging
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-
-# Silenzia logger di terze parti rumorosi a INFO (wikipediaapi, httpx);
-# WARNING+ rimane visibile per non perdere errori reali.
-logging.getLogger("wikipediaapi").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+configure_logging()
 
 # ---------------------------------------------------------------------------
 # Costanti
@@ -101,6 +91,21 @@ def parse_args() -> argparse.Namespace:
             "migliora anche la significatività del campo 'trend' nel summary."
         ),
     )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help=(
+            "Esegue la pipeline con max_results=1 per ogni fonte/query. "
+            "Verifica che le API rispondano e l'intera pipeline funzioni "
+            "senza consumare quota. Non disattiva la scrittura su disco."
+        ),
+    )
+    parser.add_argument(
+        "--keep-raw-days", type=int, default=None, metavar="N",
+        help=(
+            "Elimina i file raw più vecchi di N giorni dopo la pipeline. "
+            "Default: nessuna pulizia. Utile per gestire lo spazio in data/raw/."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -110,6 +115,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     ts   = now_timestamp()
+
+    if args.dry_run:
+        import logging as _logging
+        _logging.getLogger(__name__).info(
+            "[DRY RUN] max_results forzato a 1 per ogni fonte/query."
+        )
 
     config = PipelineConfig(
         target=args.target,
@@ -121,11 +132,14 @@ def main() -> None:
             "news": {"language": args.news_language},
         },
         since=args.since,
+        dry_run=args.dry_run,
     )
+
+    raw_store = RawStore(BASE_DIR)
 
     runner = PipelineRunner(
         registry=REGISTRY,
-        raw_store=RawStore(BASE_DIR),
+        raw_store=raw_store,
         exporters=[
             JsonExporter(BASE_DIR),
             CsvExporter(BASE_DIR),
@@ -136,6 +150,9 @@ def main() -> None:
     )
 
     records, summary = runner.run(config, timestamp=ts)
+
+    if args.keep_raw_days is not None:
+        raw_store.purge_old_files(keep_days=args.keep_raw_days)
     print(f"\nRisultato: {len(records)} record finali esportati in data/final/")
 
     if summary is not None:

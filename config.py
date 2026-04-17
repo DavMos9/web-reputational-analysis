@@ -162,4 +162,11 @@ TREND_THRESHOLD: float = 0.005
 # Soglia di similarità per fuzzy dedup (Jaccard/cosine su token).
 # 1.0 = match esatto, 0.0 = nessuna similarità.
 # Valori consigliati: 0.80–0.90 per UGC, 0.85–0.95 per news.
+#
+# NOTA: il fuzzy dedup è predisposto ma NON attivo nella pipeline corrente.
+# Il deduplicator usa solo match esatto su URL e titolo+dominio normalizzati.
+# Il costo O(n²) e i falsi positivi su testi brevi/UGC hanno sconsigliato
+# l'implementazione: i due livelli esatti coprono la maggioranza dei casi pratici.
+# Questo parametro è mantenuto come punto di configurazione per un'eventuale
+# implementazione futura (cfr. pipeline/deduplicator.py per la motivazione).
 FUZZY_DEDUP_THRESHOLD: float = 0.85

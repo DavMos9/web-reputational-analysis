@@ -77,7 +77,7 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 Input (target + queries)
         │
         ▼
-  Collectors (12 fonti API)
+  Collectors (13 fonti API)
         │
         ▼
   Persistenza raw  →  data/raw/
@@ -244,6 +244,9 @@ python main.py --target "Emmanuel Macron" --queries "Macron" --news-language fr
 | `--max-results` | Risultati massimi per fonte/query | 20 |
 | `--news-language` | Lingua per NewsAPI (ISO 639-1) | `en` |
 | `--no-raw` | Non salvare i payload grezzi | False |
+| `--since` | Scarta record con data anteriore a `YYYY-MM-DD` | None |
+| `--dry-run` | Forza `max_results=1` — verifica API senza consumare quota | False |
+| `--keep-raw-days` | Elimina file raw più vecchi di N giorni al termine della pipeline | None |
 
 ### Output
 
@@ -341,7 +344,7 @@ Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'
 
 **Trend** — direzione del sentiment nel tempo, calcolata con regressione lineare: `"up"` (miglioramento), `"down"` (peggioramento), `"stable"`, `"unknown"` (dati insufficienti, < 3 record con data e sentiment).
 
-**`sentiment_std`** — deviazione standard del sentiment. Un valore alto indica opinioni polarizzate (es. entità controversa), un valore basso indica consenso.
+**`sentiment_std`** — deviazione standard **pesata** del sentiment (usa gli stessi pesi `SOURCE_WEIGHTS` della media). Un valore alto indica opinioni polarizzate (es. entità controversa), un valore basso indica consenso.
 
 ### Esempio di analisi reale
 
@@ -445,23 +448,26 @@ web-reputational-analysis/
 │   └── summary_json_exporter.py  # Serializzazione summary (entity-level)
 │
 ├── utils/                   # Utility condivise
-│   └── slugify.py           # target_slug() e now_timestamp()
+│   ├── slugify.py           # target_slug() e now_timestamp()
+│   └── logging_config.py    # configure_logging() — setup centralizzato del logging
 │
 ├── data/
 │   ├── raw/                 # Payload grezzi
 │   └── final/               # Output finale
 │
-└── tests/                   # Test unitari
+└── tests/                   # Test unitari e di integrazione
     ├── test_collector.py
     ├── test_normalizer.py
     ├── test_cleaner.py
     ├── test_deduplicator.py
+    ├── test_enricher.py
     ├── test_exporters.py
     ├── test_raw_store.py
     ├── test_runner.py
     ├── test_aggregator.py
     ├── test_summary_json_exporter.py
-    └── test_slugify.py
+    ├── test_slugify.py
+    └── test_pipeline_e2e.py  # Test di integrazione E2E + coerenza schema CSV
 ```
 
 ---

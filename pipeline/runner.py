@@ -27,7 +27,7 @@ from pipeline.normalizer import normalize_all
 from pipeline.cleaner import clean_all, filter_quality
 from pipeline.date_filter import filter_by_date, parse_since
 from pipeline.deduplicator import deduplicate
-from pipeline.enricher import enrich_all
+from pipeline.enricher import Enricher, enrich_all
 from pipeline.aggregator import aggregate, EntitySummary
 
 log = logging.getLogger(__name__)
@@ -83,6 +83,9 @@ class PipelineConfig:
                              con date anteriore vengono scartati dopo il cleaner.
                              I record con date=None vengono mantenuti (cfr.
                              pipeline/date_filter.py). None = nessun filtro.
+        dry_run:             se True, forza max_results=1 per ogni collector/query.
+                             Utile per verificare che le API rispondano e la pipeline
+                             funzioni end-to-end senza consumare quota.
     """
     target: str
     queries: list[str]
@@ -93,6 +96,7 @@ class PipelineConfig:
     parallel_collectors: bool       = True
     max_workers: int                = 8
     since: str | None               = None
+    dry_run: bool                   = False
 
     def __post_init__(self) -> None:
         if not self.target:
@@ -129,11 +133,13 @@ class PipelineRunner:
         raw_store: RawStoreProtocol | None = None,
         exporters: list[ExporterProtocol] | None = None,
         summary_exporters: list[SummaryExporterProtocol] | None = None,
+        enricher: Enricher | None = None,
     ) -> None:
         self._registry  = registry
         self._raw_store = raw_store
         self._exporters = exporters or []
         self._summary_exporters = summary_exporters or []
+        self._enricher  = enricher or Enricher()
 
     # ------------------------------------------------------------------
     # Entry point principale
@@ -142,6 +148,9 @@ class PipelineRunner:
     def run(self, config: PipelineConfig, timestamp: str = "") -> tuple[list[Record], EntitySummary | None]:
         """
         Esegue la pipeline completa per la configurazione fornita.
+
+        Flusso: collect → save_raw → normalize/clean/filter →
+                deduplicate → enrich → aggregate → export
 
         Args:
             config:    parametri di esecuzione.
@@ -157,71 +166,107 @@ class PipelineRunner:
         log.info("=== Pipeline avviata: target='%s', fonti=%s ===",
                  config.target, config.sources or list(self._registry))
 
-        # 1. Raccolta
         raw_records = self._collect(config)
         log.info("Raccolti %d RawRecord totali.", len(raw_records))
-
         if not raw_records:
             log.warning("Nessun record raccolto. Pipeline terminata.")
             return [], None
 
-        # 2. Salvataggio raw (effetto collaterale opzionale)
-        if config.save_raw and self._raw_store:
-            try:
-                self._raw_store.save(raw_records, config.target, timestamp)
-            except Exception as e:
-                log.error("Errore durante il salvataggio raw: %s", e)
+        self._save_raw(raw_records, config, timestamp)
 
-        # 3. Normalizzazione
+        records = self._normalize_clean_filter(raw_records, config)
+
+        records, n_removed = self._deduplicate(records)
+        log.info("Deduplicati: %d rimossi, %d record unici.", n_removed, len(records))
+        if not records:
+            log.warning("Nessun record rimasto dopo deduplicazione.")
+            return [], None
+
+        records = self._enrich(records)
+        summary = aggregate(records)
+        self._export_all(records, summary, config, timestamp)
+
+        log.info("=== Pipeline completata: %d record finali, reputation=%.4f ===",
+                 len(records), summary.reputation_score)
+        return records, summary
+
+    # ------------------------------------------------------------------
+    # Step privati della pipeline
+    # ------------------------------------------------------------------
+
+    def _save_raw(
+        self,
+        raw_records: list[RawRecord],
+        config: PipelineConfig,
+        timestamp: str,
+    ) -> None:
+        """Salva i RawRecord grezzi tramite raw_store (effetto collaterale opzionale)."""
+        if not (config.save_raw and self._raw_store):
+            return
+        try:
+            self._raw_store.save(raw_records, config.target, timestamp)
+        except Exception as e:
+            log.error("Errore durante il salvataggio raw: %s", e)
+
+    def _normalize_clean_filter(
+        self,
+        raw_records: list[RawRecord],
+        config: PipelineConfig,
+    ) -> list[Record]:
+        """
+        Esegue normalizzazione, pulizia testuale, filtro qualità e filtro temporale.
+
+        Il filtro temporale viene applicato prima di dedup ed enrich
+        per non sprecare lavoro su record fuori finestra.
+        """
         records = normalize_all(raw_records)
-
-        # 4. Pulizia testuale
         records = clean_all(records)
 
-        # 4b. Filtro qualità (min lunghezza title/text — soglie in config.py)
         records, skipped = filter_quality(records)
         log.info("Puliti: %d record validi, %d scartati per qualità.", len(records), skipped)
 
-        # 4c. Filtro temporale opzionale (--since). Va eseguito prima di dedup ed enrich
-        # per non sprecare lavoro su record fuori finestra.
         if config.since:
             records, dropped = filter_by_date(records, config.since)
             log.info("Filtro temporale (>= %s): %d mantenuti, %d scartati.",
                      config.since, len(records), dropped)
 
-        # 5. Deduplicazione
-        records, removed = deduplicate(records)
-        log.info("Deduplicati: %d rimossi, %d record unici.", removed, len(records))
+        return records
 
-        if not records:
-            log.warning("Nessun record rimasto dopo deduplicazione.")
-            return [], None
+    def _deduplicate(self, records: list[Record]) -> tuple[list[Record], int]:
+        """Applica la deduplicazione e restituisce (record_unici, n_rimossi)."""
+        deduped, removed = deduplicate(records)
+        return deduped, removed
 
-        # 6. Enrichment: language detection + sentiment analysis
-        # Posizionato dopo la deduplicazione per non sprecare NLP su duplicati.
-        records = enrich_all(records)
+    def _enrich(self, records: list[Record]) -> list[Record]:
+        """
+        Applica language detection e sentiment analysis tramite self._enricher.
 
-        # 7. Aggregazione entity-level
-        summary = aggregate(records)
+        Posizionato dopo la deduplicazione per non sprecare NLP su duplicati.
+        Se le dipendenze NLP non sono installate, enrich_all restituisce
+        i record invariati (cfr. pipeline/enricher.py).
+        In test, self._enricher può essere un'istanza mockata via costruttore.
+        """
+        return self._enricher.enrich_all(records)
 
-        # 8. Export record-level (effetti collaterali opzionali)
+    def _export_all(
+        self,
+        records: list[Record],
+        summary: EntitySummary,
+        config: PipelineConfig,
+        timestamp: str,
+    ) -> None:
+        """Invoca tutti gli exporter (record-level e summary). Isola gli errori."""
         for exporter in self._exporters:
             try:
                 exporter.export(records, config.target, timestamp)
             except Exception as e:
                 log.error("Errore exporter %s: %s", type(exporter).__name__, e)
 
-        # 8b. Export summary (effetti collaterali opzionali)
         for exporter in self._summary_exporters:
             try:
                 exporter.export_summary(summary, timestamp)
             except Exception as e:
                 log.error("Errore summary exporter %s: %s", type(exporter).__name__, e)
-
-        log.info("=== Pipeline completata: %d record finali, reputation=%.4f ===",
-                 len(records), summary.reputation_score)
-
-        return records, summary
 
     # ------------------------------------------------------------------
     # Raccolta interna
@@ -280,12 +325,13 @@ class PipelineRunner:
     ) -> list[RawRecord]:
         """Esegue un singolo task collector.collect(). Isola gli errori."""
         collector = self._registry[source_id]
+        effective_max = 1 if config.dry_run else config.max_results
         log.info("Raccolta da '%s' per query: '%s'", source_id, query)
         try:
             return collector.collect(
                 target=config.target,
                 query=query,
-                max_results=config.max_results,
+                max_results=effective_max,
                 **extra_kwargs,
             )
         except Exception as e:

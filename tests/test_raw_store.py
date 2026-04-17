@@ -14,7 +14,9 @@ Copertura:
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -108,3 +110,114 @@ class TestRawStoreSave:
         store.save([_raw()], target="T", timestamp="20260409T120000Z")
 
         assert (tmp_path / "data" / "raw").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Helpers per purge
+# ---------------------------------------------------------------------------
+
+def _write_raw_file(raw_dir: Path, name: str, days_old: int) -> Path:
+    """
+    Crea un file *_raw.json fittizio in raw_dir con mtime impostato a `days_old`
+    giorni fa tramite os.utime(). Usa il filesystem reale — nessun mock del clock.
+    """
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    path = raw_dir / name
+    path.write_text("{}", encoding="utf-8")
+    past = time.time() - days_old * 86_400
+    os.utime(path, (past, past))
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Test: RawStore.purge_old_files()
+# ---------------------------------------------------------------------------
+
+class TestRawStorePurgeOldFiles:
+    """
+    Copertura:
+    - file più vecchio del cutoff viene eliminato
+    - file più recente del cutoff viene mantenuto
+    - mix di vecchi e nuovi: solo i vecchi eliminati
+    - directory data/raw/ inesistente → nessun errore
+    - keep_days < 1 → ValueError
+    - file con mtime esattamente sul bordo (< 1 secondo oltre cutoff): mantenuto
+    - file non-raw.json nella directory: ignorato
+    """
+
+    def test_old_file_deleted(self, tmp_path: Path):
+        """File con mtime > keep_days giorni fa → eliminato."""
+        store = RawStore(base_dir=tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        old = _write_raw_file(raw_dir, "old_20260101T000000Z_raw.json", days_old=10)
+
+        store.purge_old_files(keep_days=7)
+
+        assert not old.exists()
+
+    def test_recent_file_kept(self, tmp_path: Path):
+        """File con mtime < keep_days giorni fa → mantenuto."""
+        store = RawStore(base_dir=tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        recent = _write_raw_file(raw_dir, "recent_20260417T000000Z_raw.json", days_old=3)
+
+        store.purge_old_files(keep_days=7)
+
+        assert recent.exists()
+
+    def test_only_old_files_deleted_in_mixed_directory(self, tmp_path: Path):
+        """Mix di file vecchi e recenti: solo i vecchi vengono rimossi."""
+        store = RawStore(base_dir=tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        old1 = _write_raw_file(raw_dir, "old1_raw.json", days_old=15)
+        old2 = _write_raw_file(raw_dir, "old2_raw.json", days_old=31)
+        new1 = _write_raw_file(raw_dir, "new1_raw.json", days_old=2)
+        new2 = _write_raw_file(raw_dir, "new2_raw.json", days_old=6)
+
+        store.purge_old_files(keep_days=7)
+
+        assert not old1.exists()
+        assert not old2.exists()
+        assert new1.exists()
+        assert new2.exists()
+
+    def test_nonexistent_directory_does_not_raise(self, tmp_path: Path):
+        """Se data/raw/ non esiste, purge_old_files termina senza errori."""
+        store = RawStore(base_dir=tmp_path)
+        # data/raw/ non è stata creata
+        assert not (tmp_path / "data" / "raw").exists()
+
+        store.purge_old_files(keep_days=7)  # non deve sollevare
+
+    def test_keep_days_zero_raises(self, tmp_path: Path):
+        """keep_days=0 è invalido → ValueError."""
+        store = RawStore(base_dir=tmp_path)
+        with pytest.raises(ValueError, match="keep_days"):
+            store.purge_old_files(keep_days=0)
+
+    def test_keep_days_negative_raises(self, tmp_path: Path):
+        """keep_days negativo è invalido → ValueError."""
+        store = RawStore(base_dir=tmp_path)
+        with pytest.raises(ValueError, match="keep_days"):
+            store.purge_old_files(keep_days=-5)
+
+    def test_non_raw_json_files_are_ignored(self, tmp_path: Path):
+        """File senza suffisso _raw.json non vengono toccati."""
+        store = RawStore(base_dir=tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        other = raw_dir / "notes.txt"
+        other.write_text("not a raw file")
+        # Imposta mtime molto vecchio — non deve essere eliminato perché non matcha il glob
+        os.utime(other, (0, 0))
+
+        store.purge_old_files(keep_days=1)
+
+        assert other.exists()
+
+    def test_empty_directory_no_error(self, tmp_path: Path):
+        """Directory data/raw/ vuota → nessun errore, nessun file rimosso."""
+        store = RawStore(base_dir=tmp_path)
+        (tmp_path / "data" / "raw").mkdir(parents=True)
+
+        store.purge_old_files(keep_days=7)  # non deve sollevare

@@ -30,6 +30,7 @@ from unittest.mock import MagicMock, patch
 
 from models import Record
 from pipeline.enricher import (
+    Enricher,
     build_analysis_text,
     detect_language,
     resolve_language,
@@ -294,80 +295,76 @@ class TestAnalyzeSentiment:
     def test_short_text_returns_none(self):
         """Testo più corto di _MIN_LEN_SENTIMENT → None senza invocare il modello."""
         short = "x" * (_MIN_LEN_SENTIMENT - 1)
-        result = analyze_sentiment(short, "en")
-        assert result is None
+        enricher = Enricher(sentiment_pipeline=None)
+        assert enricher.analyze_sentiment(short, "en") is None
 
     def test_unsupported_language_returns_none(self):
         """Lingua non nel set supportato → None senza invocare il modello."""
-        text = "a" * 50  # testo lungo a sufficienza
-        result = analyze_sentiment(text, "zh")  # cinese non supportato
-        assert result is None
+        text = "a" * 50
+        enricher = Enricher(sentiment_pipeline=None)
+        assert enricher.analyze_sentiment(text, "zh") is None  # cinese non supportato
 
     def test_pipeline_unavailable_returns_none(self):
         """Se il modello non è disponibile, analyze_sentiment restituisce None."""
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            result = analyze_sentiment("This is a sufficiently long text for analysis.", "en")
-            assert result is None
+        enricher = Enricher(sentiment_pipeline=None)  # None esplicito: nessun modello
+        result = enricher.analyze_sentiment(
+            "This is a sufficiently long text for analysis.", "en"
+        )
+        assert result is None
 
     def test_positive_text_score(self):
         """P(pos)=0.9, P(neg)=0.05 → score = 0.85."""
         text = "This is a sufficiently long positive text for sentiment analysis."
-        mock_pipe = _mock_sentiment_pipeline(pos=0.9, neg=0.05)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
-        assert result == pytest.approx(0.85, abs=1e-5)
+        enricher = Enricher(sentiment_pipeline=_mock_sentiment_pipeline(pos=0.9, neg=0.05))
+        assert enricher.analyze_sentiment(text, "en") == pytest.approx(0.85, abs=1e-5)
 
     def test_negative_text_score(self):
         """P(pos)=0.05, P(neg)=0.9 → score = -0.85."""
         text = "This is a sufficiently long negative text for sentiment analysis."
-        mock_pipe = _mock_sentiment_pipeline(pos=0.05, neg=0.9)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
-        assert result == pytest.approx(-0.85, abs=1e-5)
+        enricher = Enricher(sentiment_pipeline=_mock_sentiment_pipeline(pos=0.05, neg=0.9))
+        assert enricher.analyze_sentiment(text, "en") == pytest.approx(-0.85, abs=1e-5)
 
     def test_neutral_text_score(self):
         """P(pos)=0.3, P(neg)=0.3 → score = 0.0."""
         text = "This is a sufficiently long neutral text for sentiment analysis."
-        mock_pipe = _mock_sentiment_pipeline(pos=0.3, neg=0.3, neu=0.4)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
-        assert result == pytest.approx(0.0, abs=1e-5)
+        enricher = Enricher(
+            sentiment_pipeline=_mock_sentiment_pipeline(pos=0.3, neg=0.3, neu=0.4)
+        )
+        assert enricher.analyze_sentiment(text, "en") == pytest.approx(0.0, abs=1e-5)
 
     def test_score_clamped_to_range(self):
         """Score è sempre in [-1.0, 1.0] anche con floating point estremo."""
         text = "x" * 50
-        mock_pipe = _mock_sentiment_pipeline(pos=1.0, neg=0.0)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
+        enricher = Enricher(sentiment_pipeline=_mock_sentiment_pipeline(pos=1.0, neg=0.0))
+        result = enricher.analyze_sentiment(text, "en")
         assert result is not None
         assert -1.0 <= result <= 1.0
 
     def test_score_rounded_to_6_decimals(self):
         """Il risultato viene arrotondato a 6 cifre decimali."""
         text = "x" * 50
-        mock_pipe = _mock_sentiment_pipeline(pos=0.123456789, neg=0.0)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
+        enricher = Enricher(
+            sentiment_pipeline=_mock_sentiment_pipeline(pos=0.123456789, neg=0.0)
+        )
+        result = enricher.analyze_sentiment(text, "en")
         assert result is not None
-        # 6 cifre decimali → il 7° non è presente
         assert result == round(result, 6)
 
     def test_none_language_still_invokes_model(self):
         """language=None non blocca il sentiment (XLM-RoBERTa gestisce input senza lingua)."""
         text = "x" * 50
         mock_pipe = _mock_sentiment_pipeline(pos=0.7, neg=0.2)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, None)
+        enricher = Enricher(sentiment_pipeline=mock_pipe)
+        result = enricher.analyze_sentiment(text, None)
         assert result is not None
         mock_pipe.assert_called_once_with(text)
 
     def test_pipeline_exception_returns_none(self):
         """Eccezione durante l'inferenza → None senza propagare."""
         text = "x" * 50
-        mock_pipe = MagicMock(side_effect=RuntimeError("CUDA out of memory"))
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            result = analyze_sentiment(text, "en")
-        assert result is None
+        crashing_pipe = MagicMock(side_effect=RuntimeError("CUDA out of memory"))
+        enricher = Enricher(sentiment_pipeline=crashing_pipe)
+        assert enricher.analyze_sentiment(text, "en") is None
 
 
 # ---------------------------------------------------------------------------
@@ -378,45 +375,41 @@ class TestEnrichRecord:
     def test_record_without_text_returns_unchanged(self):
         """Record con title e text vuoti: language e sentiment rimangono None."""
         r = _record(title="", text="", language=None)
-        enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=None)
+        enriched = enricher.enrich_record(r)
         assert enriched.language is None
         assert enriched.sentiment is None
 
     def test_record_not_mutated(self):
         """Il Record originale non deve essere modificato (dataclasses.replace).
 
-        detect_language viene mockato per restituire "en": questo garantisce
-        che language passi da None a "en", che replace() venga invocato e che
+        detect_language viene mockato per restituire "en": garantisce che
+        language passi da None a "en", che replace() venga invocato e che
         enriched sia un oggetto distinto da r — indipendentemente da langdetect.
         """
         r = _record(title="Original", text="x" * 50, language=None)
-        with patch("pipeline.enricher.detect_language", return_value="en"), \
-             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=None)
+        with patch("pipeline.enricher.detect_language", return_value="en"):
+            enriched = enricher.enrich_record(r)
         assert r.title == "Original"     # originale invariato
         assert r.language is None        # originale non mutato
         assert enriched is not r         # replace() chiamato: language None→"en"
 
     def test_language_detected_from_text(self):
-        """language=None + testo → language assegnato dopo enrichment.
-
-        Verifica che enrich_record() propaghi correttamente il risultato di
-        detect_language() al campo language del Record. La rilevazione effettiva
-        della lingua è testata in TestDetectLanguage con @langdetect_available.
-        """
+        """language=None + testo → language assegnato dopo enrichment."""
         text = "The quick brown fox jumps over the lazy dog in english language."
         r = _record(title="", text=text, language=None)
-        with patch("pipeline.enricher.detect_language", return_value="en"), \
-             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=None)
+        with patch("pipeline.enricher.detect_language", return_value="en"):
+            enriched = enricher.enrich_record(r)
         assert enriched.language == "en"
 
     def test_language_from_source_respected(self):
         """language già valorizzato nel record → mantenuto senza detect."""
         r = _record(title="Titre", text="Contenu court.", language="fr")
-        with patch("pipeline.enricher.detect_language") as mock_detect, \
-             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=None)
+        with patch("pipeline.enricher.detect_language") as mock_detect:
+            enriched = enricher.enrich_record(r)
             mock_detect.assert_not_called()
         assert enriched.language == "fr"
 
@@ -424,17 +417,16 @@ class TestEnrichRecord:
         """Con mock pipeline, sentiment viene calcolato e assegnato al record."""
         text = "This is a sufficiently long and very positive text for sentiment analysis."
         r = _record(title="", text=text, language="en")
-        mock_pipe = _mock_sentiment_pipeline(pos=0.8, neg=0.1)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=_mock_sentiment_pipeline(pos=0.8, neg=0.1))
+        enriched = enricher.enrich_record(r)
         assert enriched.sentiment is not None
         assert enriched.sentiment == pytest.approx(0.7, abs=1e-5)
 
     def test_no_replace_when_fields_unchanged(self):
         """Se language e sentiment non cambiano, il record originale viene restituito."""
         r = _record(title="", text="", language=None, sentiment=None)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_record(r)
+        enricher = Enricher(sentiment_pipeline=None)
+        enriched = enricher.enrich_record(r)
         # Con testo vuoto non ci sono aggiornamenti → stesso oggetto
         assert enriched is r
 
@@ -442,9 +434,10 @@ class TestEnrichRecord:
         """Lingua non supportata da XLM-RoBERTa → sentiment None."""
         text = "这是中文文本内容，包含足够多的字符用于测试情感分析的支持程度。"
         r = _record(title="", text=text, language="zh")
-        mock_pipe = _mock_sentiment_pipeline(pos=0.5, neg=0.3)
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=mock_pipe):
-            enriched = enrich_record(r)
+        enricher = Enricher(
+            sentiment_pipeline=_mock_sentiment_pipeline(pos=0.5, neg=0.3)
+        )
+        enriched = enricher.enrich_record(r)
         # zh non è nel set supportato → sentiment non calcolato
         assert enriched.sentiment is None
 
@@ -455,7 +448,8 @@ class TestEnrichRecord:
 
 class TestEnrichAll:
     def test_empty_list_returns_empty(self):
-        assert enrich_all([]) == []
+        enricher = Enricher(sentiment_pipeline=None)
+        assert enricher.enrich_all([]) == []
 
     def test_preserves_order(self):
         """L'ordine dei record nell'output coincide con l'input."""
@@ -463,16 +457,16 @@ class TestEnrichAll:
             _record(title=f"Article {i}", text="x" * 50, language="en")
             for i in range(5)
         ]
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_all(records)
+        enricher = Enricher(sentiment_pipeline=None)
+        enriched = enricher.enrich_all(records)
         assert len(enriched) == 5
         assert [r.title for r in enriched] == [r.title for r in records]
 
     def test_all_records_processed(self):
         """Ogni record riceve enrich_record() anche se il risultato è invariato."""
         records = [_record(title="", text="", language=None) for _ in range(3)]
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_all(records)
+        enricher = Enricher(sentiment_pipeline=None)
+        enriched = enricher.enrich_all(records)
         assert len(enriched) == 3
         assert all(r.language is None for r in enriched)
 
@@ -494,9 +488,9 @@ class TestEnrichAll:
         def _mock_detect(text: str) -> str | None:
             return "en" if len(text) >= _MIN_LEN_DETECT else None
 
-        with patch("pipeline.enricher.detect_language", side_effect=_mock_detect), \
-             patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            enriched = enrich_all([short_record, long_record])
+        enricher = Enricher(sentiment_pipeline=None)
+        with patch("pipeline.enricher.detect_language", side_effect=_mock_detect):
+            enriched = enricher.enrich_all([short_record, long_record])
 
         assert enriched[0].language is None  # "Hi" → 2 chars, sotto soglia
         assert enriched[1].language == "en"  # testo lungo → rilevato correttamente
@@ -504,6 +498,6 @@ class TestEnrichAll:
     def test_returns_list_not_generator(self):
         """enrich_all deve restituire una lista, non un generatore."""
         records = [_record(title="T", text="x" * 20, language="en")]
-        with patch("pipeline.enricher._get_sentiment_pipeline", return_value=None):
-            result = enrich_all(records)
+        enricher = Enricher(sentiment_pipeline=None)
+        result = enricher.enrich_all(records)
         assert isinstance(result, list)

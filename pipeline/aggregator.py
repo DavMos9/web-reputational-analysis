@@ -61,7 +61,8 @@ class EntitySummary:
 
         sentiment_avg       Media pesata del sentiment (pesi = SOURCE_WEIGHTS).
                             Range [-1.0, 1.0]. None se nessun record ha sentiment.
-        sentiment_std       Deviazione standard del sentiment (non pesata).
+        sentiment_std       Deviazione standard pesata del sentiment.
+                            Usa gli stessi pesi SOURCE_WEIGHTS della media.
                             Misura la polarizzazione: alta = opinioni divergenti.
                             None se < 2 record con sentiment.
 
@@ -137,11 +138,13 @@ def _compute_weighted_sentiment(records: list[Record]) -> tuple[float | None, fl
     """
     Calcola media pesata e deviazione standard del sentiment.
 
-    La media è pesata per SOURCE_WEIGHTS: un articolo del Guardian
-    pesa più di un commento YouTube.
+    La media e la deviazione standard sono entrambe pesate per SOURCE_WEIGHTS:
+    un articolo del Guardian pesa più di un commento YouTube.
+    Questo garantisce coerenza tra i due indicatori: la std misura la
+    dispersione intorno alla stessa media pesata.
 
     Returns:
-        (media_pesata, deviazione_standard, conteggio_record_con_sentiment)
+        (media_pesata, std_pesata, conteggio_record_con_sentiment)
         Media e std sono None se non ci sono record con sentiment.
         Std è None se < 2 record con sentiment.
     """
@@ -165,13 +168,12 @@ def _compute_weighted_sentiment(records: list[Record]) -> tuple[float | None, fl
     # Clamping difensivo
     avg = max(-1.0, min(1.0, avg))
 
-    # Deviazione standard (non pesata, sui valori di sentiment)
+    # Varianza pesata: Σ w_i*(s_i - avg)² / Σ w_i
+    # Stessi pesi della media → std coerente con avg.
     std: float | None = None
     if count >= 2:
-        values = [s for s, _ in pairs]
-        mean_raw = sum(values) / count
-        variance = sum((v - mean_raw) ** 2 for v in values) / count
-        std = math.sqrt(variance)
+        weighted_variance = sum(w * (s - avg) ** 2 for s, w in pairs) / total_weight
+        std = math.sqrt(weighted_variance)
 
     return round(avg, 6), round(std, 6) if std is not None else None, count
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from models import RawRecord
@@ -68,6 +69,44 @@ class RawStore:
         except OSError as e:
             log.error("[RawStore] Errore scrittura file '%s': %s", path, e)
             raise
+
+    def purge_old_files(self, keep_days: int) -> None:
+        """
+        Elimina i file raw più vecchi di `keep_days` giorni.
+
+        La scelta si basa sul mtime del file (data di modifica),
+        che coincide con la data di scrittura per file immutabili come i raw.
+        File non-JSON o non presenti vengono ignorati senza errori.
+
+        Args:
+            keep_days: numero di giorni da mantenere. Deve essere >= 1.
+
+        Raises:
+            ValueError: se keep_days < 1.
+        """
+        if keep_days < 1:
+            raise ValueError(f"keep_days deve essere >= 1, ricevuto: {keep_days}")
+
+        if not self._raw_dir.exists():
+            log.debug("[RawStore] data/raw/ non esiste, nessuna pulizia necessaria.")
+            return
+
+        cutoff = time.time() - keep_days * 86_400  # secondi
+        deleted = 0
+
+        for path in self._raw_dir.glob("*_raw.json"):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    log.info("[RawStore] Eliminato file vecchio: %s", path.name)
+                    deleted += 1
+            except OSError as e:
+                log.warning("[RawStore] Impossibile eliminare '%s': %s", path.name, e)
+
+        if deleted:
+            log.info("[RawStore] Pulizia completata: %d file eliminati (keep_days=%d).", deleted, keep_days)
+        else:
+            log.info("[RawStore] Pulizia: nessun file da eliminare (keep_days=%d).", keep_days)
 
     # ------------------------------------------------------------------
 

@@ -317,3 +317,88 @@ class TestPipelineRunnerParallel:
         """max_workers < 1 viene rifiutato in PipelineConfig.__post_init__."""
         with pytest.raises(ValueError, match="max_workers"):
             PipelineConfig(target="T", queries=["q"], max_workers=0)
+
+
+# ---------------------------------------------------------------------------
+# Test: PipelineRunner — dry_run
+# ---------------------------------------------------------------------------
+
+class TestPipelineRunnerDryRun:
+    """
+    Copertura:
+    - dry_run=True → collector.collect() chiamato con max_results=1
+      indipendentemente da config.max_results
+    - dry_run=False (default) → collector.collect() chiamato con config.max_results
+    - dry_run=True non impedisce l'esecuzione completa della pipeline
+    - PipelineConfig.dry_run default è False
+    """
+
+    def test_dry_run_forces_max_results_one(self):
+        """Con dry_run=True, max_results passato al collector è sempre 1."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+
+        runner.run(_config(sources=["news"], max_results=50, dry_run=True))
+
+        call_kwargs = collector.collect.call_args
+        actual_max = (
+            call_kwargs.kwargs.get("max_results")
+            or call_kwargs[1].get("max_results")
+            or call_kwargs[0][2]  # posizionale: target, query, max_results
+        )
+        assert actual_max == 1
+
+    def test_normal_run_uses_config_max_results(self):
+        """Con dry_run=False, max_results rispetta config.max_results."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+
+        runner.run(_config(sources=["news"], max_results=42, dry_run=False))
+
+        call_kwargs = collector.collect.call_args
+        actual_max = (
+            call_kwargs.kwargs.get("max_results")
+            or call_kwargs[1].get("max_results")
+            or call_kwargs[0][2]
+        )
+        assert actual_max == 42
+
+    def test_dry_run_pipeline_still_produces_output(self):
+        """dry_run=True non impedisce alla pipeline di restituire record e summary."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+
+        records, summary = runner.run(_config(sources=["news"], dry_run=True))
+
+        assert len(records) == 1
+        assert summary is not None
+
+    def test_dry_run_default_is_false(self):
+        """PipelineConfig.dry_run deve essere False di default."""
+        cfg = PipelineConfig(target="T", queries=["q"])
+        assert cfg.dry_run is False
+
+    def test_dry_run_applies_to_all_queries(self):
+        """Con dry_run=True e più query, ogni chiamata usa max_results=1."""
+        collector = _make_collector("news", returns=[_raw("news")])
+        registry = {"news": collector}
+        runner = PipelineRunner(registry=registry)
+
+        runner.run(_config(
+            sources=["news"],
+            queries=["q1", "q2", "q3"],
+            max_results=30,
+            dry_run=True,
+        ))
+
+        assert collector.collect.call_count == 3
+        for call in collector.collect.call_args_list:
+            actual_max = (
+                call.kwargs.get("max_results")
+                or call[1].get("max_results")
+                or call[0][2]
+            )
+            assert actual_max == 1

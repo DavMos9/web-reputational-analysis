@@ -11,6 +11,15 @@ Il livello 2 viene SALTATO per sorgenti "parent-child" dove molti record
 distinti condividono lo stesso `title` del contenitore (es. commenti YouTube,
 che ereditano il titolo del video). Per quelle fonti l'identità va cercata
 altrove (URL distinto, testo del singolo commento).
+
+--- Approcci non implementati ---
+Fuzzy deduplication (similarità Jaccard/coseno sul testo) è stata valutata
+ma non implementata: i due livelli URL + titolo/dominio coprono la stragrande
+maggioranza dei duplicati pratici con costo O(n) e nessuna dipendenza esterna.
+Fuzzy dedup richiederebbe O(n²) confronti o indicizzazione LSH, e introduce
+falsi positivi su record semanticamente distinti ma lessicalmente simili
+(es. aggiornamenti di breaking news). Da valutare se il dataset cresce
+significativamente o se emergono duplicati residui sistematici.
 """
 
 from __future__ import annotations

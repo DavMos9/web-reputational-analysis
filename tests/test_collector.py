@@ -14,6 +14,7 @@ Copertura:
 
 from __future__ import annotations
 
+import logging
 import pytest
 import requests
 
@@ -151,14 +152,35 @@ class TestNewsCollectorCollect:
     @patch("collectors.news_collector.NEWS_API_KEY", "fake-key")
     @patch("collectors.news_collector.requests.get")
     def test_collect_http_error_returns_empty(self, mock_get, collector):
-        """HTTP 429 (rate limit) viene gestito: restituisce []."""
+        """HTTP error generico via raise_for_status → restituisce []."""
         mock = MagicMock()
-        mock.raise_for_status.side_effect = requests.HTTPError("429 Too Many Requests")
+        mock.status_code = 500
+        mock.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
         mock_get.return_value = mock
 
         results = collector.collect("Elon Musk", "Elon Musk Tesla")
 
         assert results == []
+
+    @patch("collectors.news_collector.NEWS_API_KEY", "fake-key")
+    @patch("collectors.news_collector.requests.get")
+    def test_collect_429_explicit_check_returns_empty(self, mock_get, collector, caplog):
+        """
+        HTTP 429 rilevato tramite status_code (check esplicito, prima di raise_for_status).
+        Verifica che il collector ritorni [] e loggi un warning specifico.
+        """
+        mock = MagicMock()
+        mock.status_code = 429
+        mock.raise_for_status.return_value = None  # non viene raggiunto
+        mock_get.return_value = mock
+
+        with caplog.at_level(logging.WARNING, logger="collectors.news_collector"):
+            results = collector.collect("Elon Musk", "Elon Musk Tesla")
+
+        assert results == []
+        assert any("429" in msg for msg in caplog.messages), (
+            "Expected a warning mentioning '429' in collectors.news_collector"
+        )
 
     @patch("collectors.news_collector.NEWS_API_KEY", "fake-key")
     @patch("collectors.news_collector.requests.get")
@@ -306,3 +328,140 @@ class TestBraveCollectorCollect:
         assert "country" not in call_params
         assert "search_lang" not in call_params
         assert "freshness" not in call_params
+
+
+# ---------------------------------------------------------------------------
+# Test: GuardianCollector — collect()
+# ---------------------------------------------------------------------------
+
+from collectors.guardian_collector import GuardianCollector  # noqa: E402
+
+
+SAMPLE_GUARDIAN_ARTICLE = {
+    "id": "world/2026/apr/08/test-article",
+    "webTitle": "Test Guardian Article",
+    "webUrl": "https://www.theguardian.com/world/2026/apr/08/test-article",
+    "webPublicationDate": "2026-04-08T10:00:00Z",
+    "fields": {
+        "headline": "Test Guardian Headline",
+        "trailText": "A short trail text.",
+        "bodyText": "Full body text of the article.",
+        "byline": "Jane Smith",
+        "shortUrl": "https://gu.com/p/abc123",
+    },
+}
+
+
+def _mock_guardian_response(articles: list[dict], status_code: int = 200) -> MagicMock:
+    """Mock della risposta Guardian (/search)."""
+    mock = MagicMock()
+    mock.status_code = status_code
+    mock.json.return_value = {"response": {"status": "ok", "results": articles}}
+    mock.raise_for_status.return_value = None
+    return mock
+
+
+class TestGuardianCollectorCollect:
+    @pytest.fixture
+    def guardian(self) -> GuardianCollector:
+        return GuardianCollector()
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_returns_raw_records(self, mock_get, guardian):
+        """Con risposta valida, restituisce RawRecord con source='guardian'."""
+        mock_get.return_value = _mock_guardian_response([SAMPLE_GUARDIAN_ARTICLE])
+
+        results = guardian.collect("Elon Musk", "Elon Musk")
+
+        assert len(results) == 1
+        assert isinstance(results[0], RawRecord)
+        assert results[0].source == "guardian"
+        assert results[0].target == "Elon Musk"
+        assert results[0].payload["_rank"] == 1
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "")
+    def test_collect_missing_api_key_returns_empty(self, guardian):
+        """Senza API key il collector non chiama HTTP e restituisce []."""
+        assert guardian.collect("Elon Musk", "Elon Musk") == []
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_empty_results(self, mock_get, guardian):
+        """API risponde con lista vuota → restituisce []."""
+        mock_get.return_value = _mock_guardian_response([])
+
+        assert guardian.collect("Elon Musk", "Elon Musk") == []
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_api_failure_returns_empty(self, mock_get, guardian):
+        """RequestException gestita: nessuna eccezione propagata."""
+        mock_get.side_effect = requests.RequestException("network error")
+
+        assert guardian.collect("Elon Musk", "Elon Musk") == []
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_http_error_returns_empty(self, mock_get, guardian):
+        """HTTP error generico via raise_for_status → restituisce []."""
+        mock = MagicMock()
+        mock.status_code = 500
+        mock.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+        mock_get.return_value = mock
+
+        assert guardian.collect("Elon Musk", "Elon Musk") == []
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_429_explicit_check_returns_empty(self, mock_get, guardian, caplog):
+        """
+        HTTP 429 rilevato tramite status_code (check esplicito, prima di raise_for_status).
+        Verifica che il collector ritorni [] e loggi un warning specifico.
+        """
+        mock = MagicMock()
+        mock.status_code = 429
+        mock.raise_for_status.return_value = None  # non viene raggiunto
+        mock_get.return_value = mock
+
+        with caplog.at_level(logging.WARNING, logger="collectors.guardian_collector"):
+            results = guardian.collect("Elon Musk", "Elon Musk")
+
+        assert results == []
+        assert any("429" in msg for msg in caplog.messages), (
+            "Expected a warning mentioning '429' in collectors.guardian_collector"
+        )
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_respects_max_results(self, mock_get, guardian):
+        """max_results viene passato come page-size nei params (cap a 200)."""
+        mock_get.return_value = _mock_guardian_response([SAMPLE_GUARDIAN_ARTICLE])
+
+        guardian.collect("Elon Musk", "Elon Musk", max_results=15)
+
+        call_params = mock_get.call_args.kwargs.get("params", {})
+        assert call_params["page-size"] == 15
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_caps_max_results_at_200(self, mock_get, guardian):
+        """max_results > 200 viene capato a 200 (limite API Guardian)."""
+        mock_get.return_value = _mock_guardian_response([SAMPLE_GUARDIAN_ARTICLE])
+
+        guardian.collect("Elon Musk", "Elon Musk", max_results=500)
+
+        call_params = mock_get.call_args.kwargs.get("params", {})
+        assert call_params["page-size"] == 200
+
+    @patch("collectors.guardian_collector.GUARDIAN_API_KEY", "fake-key")
+    @patch("collectors.guardian_collector.requests.get")
+    def test_collect_rank_is_sequential(self, mock_get, guardian):
+        """Il campo _rank è assegnato in ordine crescente a partire da 1."""
+        articles = [SAMPLE_GUARDIAN_ARTICLE, {**SAMPLE_GUARDIAN_ARTICLE, "id": "other/id"}]
+        mock_get.return_value = _mock_guardian_response(articles)
+
+        results = guardian.collect("Elon Musk", "Elon Musk")
+
+        assert results[0].payload["_rank"] == 1
+        assert results[1].payload["_rank"] == 2
