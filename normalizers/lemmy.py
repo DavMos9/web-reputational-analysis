@@ -66,6 +66,7 @@ def _normalize_post(
         query=raw.query,
         target=raw.target,
         author=first_non_empty(creator.get("name")),
+        language=None,  # Lemmy API non espone la lingua del contenuto
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(counts.get("score")),
@@ -101,6 +102,7 @@ def _normalize_comment(
         query=raw.query,
         target=raw.target,
         author=first_non_empty(creator.get("name")),
+        language=None,  # Lemmy API non espone la lingua del contenuto
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(counts.get("score")),

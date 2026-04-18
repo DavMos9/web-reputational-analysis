@@ -42,6 +42,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(author.get("displayName"), author.get("handle")),
+        language=None,  # AT Protocol non espone lingua nel payload search; rilevata dall'enricher
         domain="bsky.app",
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(p.get("likeCount")),

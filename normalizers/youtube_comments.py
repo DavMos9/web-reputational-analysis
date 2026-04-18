@@ -39,6 +39,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(snippet.get("authorDisplayName")),
+        language=None,  # YouTube API non espone la lingua nei commenti; rilevata dall'enricher
         domain="youtube.com",
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(snippet.get("likeCount")),

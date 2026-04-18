@@ -100,6 +100,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(owner.get("display_name")),
+        language=None,  # Stack Exchange API non espone la lingua; rilevata dall'enricher
         domain=f"{site}.com",
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(p.get("score")),  # score = upvotes - downvotes

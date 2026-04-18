@@ -6,10 +6,19 @@ Collector per Hacker News tramite Algolia Search API.
 Documentazione:
     https://hn.algolia.com/api
 
+Endpoint disponibili:
+    /search          — ordinamento per rilevanza (default Algolia)
+    /search_by_date  — ordinamento cronologico decrescente
+
 Limiti:
     - Nessuna API key richiesta.
     - Nessuna quota ufficiale documentata; uso ragionevole per ricerca accademica.
-    - Restituisce storie (stories) ordinate per rilevanza.
+
+Parametro search_by_date:
+    Quando True, usa l'endpoint /search_by_date che ordina i risultati per data
+    decrescente (più recenti prima). Consigliato in combinazione con --since per
+    evitare che il filtro temporale scarti la maggior parte dei risultati.
+    Default: False (compatibilità con comportamento originale).
 
 Note sulla copertura:
     Hacker News non è solo tech: la community discute attivamente di politica,
@@ -28,8 +37,9 @@ from models import RawRecord
 
 log = logging.getLogger(__name__)
 
-_BASE_URL = "https://hn.algolia.com/api/v1/search"
-_MAX_RESULTS_CAP = 50  # limite ragionevole per singola richiesta
+_BASE_URL_RELEVANCE = "https://hn.algolia.com/api/v1/search"
+_BASE_URL_DATE      = "https://hn.algolia.com/api/v1/search_by_date"
+_MAX_RESULTS_CAP    = 50  # limite ragionevole per singola richiesta
 
 
 class HackerNewsCollector(BaseCollector):
@@ -44,10 +54,18 @@ class HackerNewsCollector(BaseCollector):
     ) -> list[RawRecord]:
         """
         Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (cap a 50).
+            target:         entità analizzata.
+            query:          stringa di ricerca.
+            max_results:    numero massimo di risultati (cap a 50).
+            kwargs:
+                search_by_date (bool): se True, usa l'endpoint /search_by_date
+                    (ordinamento cronologico) invece di /search (ordinamento per
+                    rilevanza). Default False. Consigliato con --since per
+                    massimizzare i risultati recenti.
         """
+        search_by_date: bool = bool(kwargs.get("search_by_date", False))
+        url = _BASE_URL_DATE if search_by_date else _BASE_URL_RELEVANCE
+
         params = {
             "query":       query,
             "tags":        "story",
@@ -55,7 +73,7 @@ class HackerNewsCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(_BASE_URL, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10)
 
             if response.status_code == 429:
                 log.warning(

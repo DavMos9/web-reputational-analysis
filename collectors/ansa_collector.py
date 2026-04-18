@@ -4,10 +4,13 @@ collectors/ansa_collector.py
 Collector per ANSA (Agenzia Nazionale Stampa Associata) tramite feed RSS pubblici.
 
 Endpoint (nessuna API key richiesta):
-    https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml         — esteri
-    https://www.ansa.it/sito/notizie/politica/politica_rss.xml   — politica
-    https://www.ansa.it/sito/notizie/economia/economia_rss.xml   — economia
-    https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml     — cronaca
+    https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml             — esteri
+    https://www.ansa.it/sito/notizie/politica/politica_rss.xml       — politica
+    https://www.ansa.it/sito/notizie/economia/economia_rss.xml       — economia
+    https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml         — cronaca
+    https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml         — cultura e spettacolo
+    https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml   — tecnologia
+    https://www.ansa.it/sito/notizie/sport/sport_rss.xml             — sport
 
 ANSA è la principale agenzia di stampa italiana. I feed RSS coprono le
 principali categorie editoriali e vengono aggiornati in tempo reale.
@@ -40,11 +43,16 @@ from models import RawRecord
 log = logging.getLogger(__name__)
 
 # Feed RSS ANSA — copertura tematica ampia per reputation analysis generalista.
+# I feed cultura, tecnologia e sport estendono la copertura a celebrity, personaggi
+# dello spettacolo, sportivi e aziende tech — categorie assenti dai 4 feed originali.
 _RSS_FEEDS: list[str] = [
     "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
     "https://www.ansa.it/sito/notizie/politica/politica_rss.xml",
     "https://www.ansa.it/sito/notizie/economia/economia_rss.xml",
     "https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml",
+    "https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml",         # spettacolo, celebrity
+    "https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml",   # aziende tech, prodotti
+    "https://www.ansa.it/sito/notizie/sport/sport_rss.xml",             # sportivi, club
 ]
 
 _HEADERS = {

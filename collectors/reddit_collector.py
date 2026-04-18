@@ -36,6 +36,7 @@ Note sui campi:
 from __future__ import annotations
 
 import logging
+import random
 import time
 
 import requests
@@ -47,9 +48,12 @@ log = logging.getLogger(__name__)
 _BASE_URL        = "https://www.reddit.com/search.json"
 _MAX_RESULTS_CAP = 100
 
-# Retry su 429: un solo tentativo dopo _RETRY_DELAY secondi.
-# 30s è sufficiente a far scadere il rate limit per minuto dell'endpoint non autenticato.
-_RETRY_DELAY = 30
+# Retry su 429: un solo tentativo dopo _RETRY_DELAY_BASE + jitter secondi.
+# Il jitter (0–_RETRY_JITTER_MAX s) desincronizza i retry di query parallele
+# che colpiscono l'endpoint nello stesso istante, evitando che si risveglino
+# simultaneamente e riattivino subito il rate limit.
+_RETRY_DELAY_BASE  = 30
+_RETRY_JITTER_MAX  = 10
 
 # User-Agent obbligatorio. Reddit blocca richieste con UA generico.
 _USER_AGENT = (
@@ -102,11 +106,12 @@ class RedditCollector(BaseCollector):
             )
 
             if response.status_code == 429:
+                delay = _RETRY_DELAY_BASE + random.uniform(0, _RETRY_JITTER_MAX)
                 log.warning(
                     "[RedditCollector] Rate limit raggiunto (HTTP 429). "
-                    "Attendo %ds e riprovo (tentativo 1/1).", _RETRY_DELAY
+                    "Attendo %.1fs e riprovo (tentativo 1/1).", delay
                 )
-                time.sleep(_RETRY_DELAY)
+                time.sleep(delay)
                 response = requests.get(
                     _BASE_URL,
                     params=params,

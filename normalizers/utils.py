@@ -55,7 +55,7 @@ def to_url(url: str | None) -> str:
     try:
         parsed = urlparse(url)
         return url if parsed.netloc else ""
-    except Exception:
+    except ValueError:
         return ""
 
 
@@ -63,7 +63,7 @@ def to_domain(url: str) -> str:
     """Estrae il dominio (netloc) da un URL già normalizzato."""
     try:
         return urlparse(url).netloc or ""
-    except Exception:
+    except ValueError:
         return ""
 
 

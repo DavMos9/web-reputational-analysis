@@ -86,6 +86,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=author,
+        language=p.get("language"),   # ISO 639-1 se dichiarato dal client, None altrimenti
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(p.get("favourites_count")),
