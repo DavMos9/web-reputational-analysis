@@ -163,6 +163,16 @@ class PipelineRunner:
             - summary: EntitySummary con metriche reputazionali aggregate,
                        None se nessun record è rimasto dopo la pipeline.
         """
+        # Validazione sorgenti: fail-fast se un source_id non è nel registry.
+        # Errore esplicito prima di iniziare qualsiasi I/O di rete.
+        if config.sources:
+            unknown = [s for s in config.sources if s not in self._registry]
+            if unknown:
+                raise ValueError(
+                    f"Sorgenti sconosciute nella configurazione: {unknown}. "
+                    f"Sorgenti disponibili: {sorted(self._registry)}"
+                )
+
         log.info("=== Pipeline avviata: target='%s', fonti=%s ===",
                  config.target, config.sources or list(self._registry))
 

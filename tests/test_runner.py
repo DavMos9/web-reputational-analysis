@@ -6,7 +6,7 @@ Test per pipeline/runner.py (PipelineRunner e PipelineConfig).
 Copertura:
 - PipelineConfig: validazione dei campi obbligatori
 - PipelineRunner.run(): lista vuota se nessun collector produce record
-- PipelineRunner.run(): scarta sorgenti non nel registry con warning
+- PipelineRunner.run(): raise ValueError se sorgente non nel registry (fail-fast)
 - PipelineRunner.run(): collector che solleva eccezione non blocca la pipeline
 - PipelineRunner.run(): flusso normale — record normalizzati, puliti, deduplicati
 - PipelineRunner.run(): save_raw=True invoca raw_store.save()
@@ -101,14 +101,13 @@ class TestPipelineRunnerRun:
         assert records == []
         assert summary is None
 
-    def test_unknown_source_skipped(self):
-        """Sorgente non nel registry viene ignorata senza eccezione."""
+    def test_unknown_source_raises(self):
+        """Sorgente non nel registry solleva ValueError (fail-fast)."""
         registry = {"news": _make_collector("news", returns=[])}
         runner = PipelineRunner(registry=registry)
-        # "gdelt" non esiste nel registry
-        records, summary = runner.run(_config(sources=["gdelt"]))
-        assert records == []
-        assert summary is None
+        # "gdelt" non esiste nel registry → ValueError immediato
+        with pytest.raises(ValueError, match="Sorgenti sconosciute"):
+            runner.run(_config(sources=["gdelt"]))
 
     def test_collector_exception_does_not_crash_pipeline(self):
         """Collector che solleva eccezione non interrompe l'esecuzione."""

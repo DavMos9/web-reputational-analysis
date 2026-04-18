@@ -44,6 +44,11 @@ def build_registry() -> dict[str, "BaseCollector"]:
     from collectors.lemmy_collector import LemmyCollector
     from collectors.wikitalk_collector import WikiTalkCollector
     from collectors.brave_collector import BraveCollector
+    from collectors.gnews_it_collector import GNewsItCollector
+    from collectors.hackernews_collector import HackerNewsCollector
+    from collectors.reddit_collector import RedditCollector
+    from collectors.bbc_collector import BbcCollector
+    from collectors.ansa_collector import AnsaCollector
 
     return {
         "news":             NewsCollector(),
@@ -59,6 +64,11 @@ def build_registry() -> dict[str, "BaseCollector"]:
         "lemmy":            LemmyCollector(),
         "wikitalk":         WikiTalkCollector(),
         "brave":            BraveCollector(),
+        "gnews_it":         GNewsItCollector(),
+        "hackernews":       HackerNewsCollector(),
+        "reddit":           RedditCollector(),
+        "bbc":              BbcCollector(),
+        "ansa":             AnsaCollector(),
     }
 
 

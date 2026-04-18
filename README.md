@@ -43,6 +43,9 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 | [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/) | Media globale | No | Nessuno (rate limit variabile) |
 | [The Guardian](https://open-platform.theguardian.com) | Articoli giornalistici | Sì | 5.000 req/giorno |
 | [New York Times](https://developer.nytimes.com) | Articoli giornalistici | Sì | 4.000 req/giorno |
+| [Google News Italia](https://news.google.com/rss) | Aggregatore news italiane (RSS) | No | Nessuna quota ufficiale |
+| [BBC News](https://www.bbc.com/news) | Emittente pubblica internazionale (RSS) | No | Nessuna quota ufficiale |
+| [ANSA](https://www.ansa.it) | Agenzia stampa italiana (RSS) | No | Nessuna quota ufficiale |
 
 ### Social e contenuti generati dagli utenti (UGC)
 
@@ -52,7 +55,9 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 | [Bluesky](https://docs.bsky.app) | Post social | No | ~30 req/min |
 | [Mastodon](https://docs.joinmastodon.org/methods/search/) | Post social (fediverse) | Opzionale | 300 req/5 min per IP |
 | [Lemmy](https://join-lemmy.org/docs/contributors/04-api.html) | Post e commenti (forum) | No | ~60 req/min |
-| [Stack Exchange](https://api.stackexchange.com/docs) | Domande e risposte | Opzionale | 300 req/giorno (10k con key) |
+| [Reddit](https://www.reddit.com/dev/api/) | Post e commenti (endpoint pubblico non autenticato) | No | ~30 req/min senza autenticazione |
+| [Stack Exchange](https://api.stackexchange.com/docs) | Domande e risposte — **opt-in** | Opzionale | 300 req/giorno (10k con key) |
+| [Hacker News](https://hn.algolia.com/api) | Storie HN (Algolia API) — **opt-in** | No | Nessuna quota ufficiale |
 
 ### Riferimenti enciclopedici
 
@@ -67,7 +72,7 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 |---|---|---|---|
 | [Brave Search](https://api-dashboard.search.brave.com/) | Web search (indice indipendente) | Sì | 2.000 query/mese, 1 query/sec |
 
-> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato. Reddit API è stata esclusa definitivamente: il modello di pricing/accesso attuale e i vincoli dei Termini di Servizio (uso commerciale/ricerca, moderazione) la rendono inadatta a una pipeline di reputation analysis riproducibile. La copertura di contenuti in stile forum/community è coperta da Lemmy, Mastodon e Bluesky. SearXNG è stata valutata come alternativa self-hosted ma scartata per fragilità infrastrutturale (blocchi IP dei motori upstream, affidabilità bassa): Brave offre copertura comparabile con un indice proprio, API documentata e ToS chiari — requisito essenziale per una pipeline riproducibile in contesto accademico.
+> **Nota:** Google Search API è stata valutata ma esclusa per assenza di piano gratuito adeguato. Reddit è inclusa tramite endpoint JSON non autenticato (`/search.json`), ampiamente utilizzato nella ricerca accademica, che non richiede OAuth e non è soggetto al modello di pricing dell'API ufficiale. Hacker News è opt-in perché la community è fortemente tech-savvy e anglofona: utile per target aziendali o tecnologici, rumorosa per figure pubbliche non-tech. SearXNG è stata valutata come alternativa self-hosted ma scartata per fragilità infrastrutturale (blocchi IP dei motori upstream, affidabilità bassa): Brave offre copertura comparabile con un indice proprio, API documentata e ToS chiari — requisito essenziale per una pipeline riproducibile in contesto accademico. BBC News e ANSA sono incluse tramite feed RSS pubblici senza API key: BBC per la copertura internazionale ad alta autorevolezza (peso 0.90, feed world/business/technology/politics aggiornati ogni 15 minuti), ANSA per la copertura italiana in tempo reale (peso 0.85). Reuters è stata valutata ma esclusa: il dominio `feeds.reuters.com` è stato dismesso e i feed pubblici non sono più disponibili.
 
 ---
 
@@ -77,7 +82,7 @@ I dati prodotti sono pensati per essere utilizzati in pipeline di analisi succes
 Input (target + queries)
         │
         ▼
-  Collectors (13 fonti API)
+  Collectors (18 fonti API)
         │
         ▼
   Persistenza raw  →  data/raw/
@@ -186,26 +191,26 @@ python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni"
 Output atteso:
 
 ```
-2026-04-08T18:12:18 [INFO] === Pipeline avviata: target='Giorgia Meloni', fonti=[...] ===
-[news] Raccolti 20 record per query: 'Giorgia Meloni'
+2026-04-18T16:20:33 [INFO] === Pipeline avviata: target='Giorgia Meloni', fonti=['news', 'gdelt', 'wikipedia', 'youtube', 'youtube_comments', 'guardian', 'nyt', 'bluesky', 'mastodon', 'lemmy', 'wikitalk', 'brave', 'gnews_it', 'reddit', 'bbc', 'ansa'] ===
+[news] Raccolti 15 record per query: 'Giorgia Meloni'
 [gdelt] Raccolti 20 record per query: 'Giorgia Meloni'
 [wikipedia] Raccolti 1 record per query: 'Giorgia Meloni'
-[youtube] Raccolti 20 record per query: 'Giorgia Meloni'
+[youtube] Raccolti 19 record per query: 'Giorgia Meloni'
 [guardian] Raccolti 20 record per query: 'Giorgia Meloni'
-[nyt] Raccolti 10 record per query: 'Giorgia Meloni'
-2026-04-08T18:12:32 [INFO] Deduplicati: 0 rimossi, 91 record unici.
-2026-04-08T18:12:32 [INFO] Enrichment: 87/91 record con language, 74/91 con sentiment.
-2026-04-08T18:12:32 [INFO] Aggregazione completata per 'Giorgia Meloni': 91 record, reputation=0.5842, trend=stable
-2026-04-08T18:12:32 [INFO] === Pipeline completata: 91 record finali, reputation=0.5842 ===
+...
+2026-04-18T16:21:33 [INFO] Deduplicati: 20 rimossi, 227 record unici.
+2026-04-18T16:21:44 [INFO] Enrichment: 227/227 record con language, 222/227 con sentiment.
+2026-04-18T16:21:44 [INFO] Aggregazione completata per 'Giorgia Meloni': 227 record, reputation=0.5572, trend=stable
+2026-04-18T16:21:44 [INFO] === Pipeline completata: 227 record finali, reputation=0.5572 ===
 
-Risultato: 91 record finali esportati in data/final/
+Risultato: 227 record finali esportati in data/final/
 
 --- Reputation Summary: Giorgia Meloni ---
-  Reputation Score: 0.5842
-  Sentiment (avg):  0.0523
+  Reputation Score: 0.5572
+  Sentiment (avg):  -0.374831
   Trend:            stable
-  Sources:          91 record da 6 fonti
-  Date range:       ('2026-03-10', '2026-04-08')
+  Sources:          227 record da 14 fonti
+  Date range:       ('2026-01-16', '2026-04-18')
 ```
 
 ### Query multiple
@@ -387,7 +392,7 @@ In questo caso: il sentiment medio è leggermente negativo (-0.08) con alta disp
 
 ## Limiti noti
 
-**GDELT:** applica rate limiting variabile. In caso di errori 429, il collector esegue retry automatico con backoff esponenziale (fino a 3 tentativi, delay iniziale 3s). Se GDELT è sovraccarico, alcune query potrebbero restituire 0 risultati. Query con token molto corti (< 3 caratteri) vengono sanitizzate automaticamente.
+**GDELT:** applica rate limiting variabile. In caso di errori 429 o body vuoto, il collector esegue retry automatico con backoff esponenziale (fino a 5 tentativi, cap 60s). Se GDELT è sovraccarico, alcune query potrebbero restituire 0 risultati. Query con token molto corti (< 3 caratteri) vengono sanitizzate automaticamente.
 
 **NewsAPI:** il piano gratuito è limitato a 100 richieste/giorno e agli articoli degli ultimi 30 giorni. La lingua è configurabile via `--news-language` ma non tutte le lingue hanno la stessa copertura.
 
@@ -398,6 +403,8 @@ In questo caso: il sentiment medio è leggermente negativo (-0.08) con alta disp
 **Mastodon:** il token è specifico dell'istanza dove è stato creato (es. mastodon.social). Su istanze senza token, il collector usa automaticamente il fallback sulla timeline hashtag pubblica. La ricerca full-text sugli statuses richiede ElasticSearch attivo sull'istanza.
 
 **Lemmy / Stack Exchange:** la ricerca cross-istanza può produrre duplicati (es. lo stesso post federato su più istanze Lemmy). Il deduplicator li rimuove automaticamente via URL canonico.
+
+**Reddit:** utilizza l'endpoint JSON non autenticato (`/search.json`), soggetto a ~30 req/minuto. In caso di HTTP 429, il collector attende 30 secondi ed esegue un secondo tentativo automatico. Se il rate limit persiste, la fonte viene saltata per l'esecuzione corrente senza interrompere la pipeline.
 
 **Brave Search:** piano gratuito limitato a 20 risultati per query e 1 query/sec (rate limit applicato a livello API, non dal collector). Il campo `page_age` non è sempre presente nei risultati: quando assente, `date` resta `None` e il record contribuisce meno al `recency_score` dell'aggregator. `author` non è esposto in forma strutturata. Il peso `SOURCE_WEIGHTS["brave"]` è intenzionalmente basso (0.55) perché i risultati includono contenuti SEO eterogenei di qualità variabile.
 
@@ -429,7 +436,12 @@ web-reputational-analysis/
 │   ├── mastodon_collector.py
 │   ├── lemmy_collector.py
 │   ├── wikitalk_collector.py
-│   └── brave_collector.py
+│   ├── brave_collector.py
+│   ├── gnews_it_collector.py
+│   ├── hackernews_collector.py
+│   ├── reddit_collector.py
+│   ├── bbc_collector.py
+│   └── ansa_collector.py
 │
 ├── pipeline/                # Passi di trasformazione
 │   ├── runner.py            # PipelineRunner — orchestratore

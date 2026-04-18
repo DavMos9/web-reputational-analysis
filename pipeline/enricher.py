@@ -30,35 +30,28 @@ Note architetturali:
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import replace
 from typing import Any
 
+from config import (
+    SENTIMENT_MODEL as _SENTIMENT_MODEL,
+    SENTIMENT_SUPPORTED_LANGS as _SENTIMENT_SUPPORTED_LANGS,
+    NLP_MIN_LEN_DETECT as _MIN_LEN_DETECT,
+    NLP_MIN_LEN_SENTIMENT as _MIN_LEN_SENTIMENT,
+)
 from models import Record
 
 log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Costanti
+# Costanti locali
 # ---------------------------------------------------------------------------
 
-# Soglie di lunghezza testo per operazioni NLP affidabili (in caratteri).
-# Sotto queste soglie i risultati sono inaffidabili e vengono scartati.
-# _MIN_LEN_DETECT abbassato a 15: title + text di record brevi (GDELT, NYT abstract)
-# hanno spesso 15-25 chars. La soglia 25 scartava troppi record con solo titolo.
-_MIN_LEN_DETECT: int = 15
-_MIN_LEN_SENTIMENT: int = 15
-
-# Modello HuggingFace per sentiment analysis multilingue.
-# Fine-tuned su Twitter in 8 lingue: ar, en, fr, de, hi, it, pt, es.
-# Ref: https://huggingface.co/cardiffnlp/twitter-xlm-roberta-base-sentiment
-_SENTIMENT_MODEL: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
-
-# Lingue supportate dal modello di sentiment (ISO 639-1).
-# Per lingue fuori da questo set il sentiment NON viene calcolato (→ None).
-_SENTIMENT_SUPPORTED_LANGS: frozenset[str] = frozenset({
-    "ar", "en", "fr", "de", "hi", "it", "pt", "es",
-})
+# _MIN_LEN_DETECT, _MIN_LEN_SENTIMENT, _SENTIMENT_MODEL e
+# _SENTIMENT_SUPPORTED_LANGS sono importati da config.py:
+# modificare lì per cambiare soglie, modello o lingue supportate.
 
 # Mapping ISO 639-3 → ISO 639-1 per i codici più comuni restituiti da GDELT
 # e altre sorgenti che usano 3-letter codes.
@@ -274,10 +267,17 @@ class Enricher:
         else:
             self._pipeline = sentiment_pipeline
             self._pipeline_initialized = True          # già deciso: no lazy load
+        # Lock per il lazy loading: garantisce che il modello venga inizializzato
+        # una sola volta anche se l'istanza venisse condivisa tra più thread.
+        self._pipeline_lock: threading.Lock = threading.Lock()
 
     def _get_pipeline(self) -> Any | None:
         """
         Carica il modello HuggingFace la prima volta che viene richiesto.
+
+        Thread-safe: usa un Lock per prevenire double-initialization se l'istanza
+        viene condivisa tra thread. Il double-checked locking (DCL) garantisce
+        che la sezione critica venga eseguita al massimo una volta.
 
         Se il caricamento fallisce, imposta il pipeline a None e non ritenta
         nelle chiamate successive (fail-fast, no retry).
@@ -285,10 +285,16 @@ class Enricher:
         Returns:
             Pipeline transformers configurato, oppure None se non disponibile.
         """
+        # Fast path: già inizializzato, nessun lock richiesto.
         if self._pipeline_initialized:
             return self._pipeline
 
-        self._pipeline_initialized = True
+        with self._pipeline_lock:
+            # Secondo check dentro il lock: un altro thread potrebbe aver già
+            # completato l'inizializzazione mentre aspettavamo il lock.
+            if self._pipeline_initialized:
+                return self._pipeline
+            self._pipeline_initialized = True
 
         try:
             import logging as _logging

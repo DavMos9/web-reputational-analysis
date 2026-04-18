@@ -37,6 +37,7 @@ from config import (
     RECENCY_HALF_LIFE_DAYS,
     VOLUME_HALFSAT,
     TREND_THRESHOLD,
+    MIN_RECORDS_FOR_TREND,
 )
 
 log = logging.getLogger(__name__)
@@ -299,7 +300,7 @@ def _compute_trend(records: list[Record]) -> str:
         if r.date is not None and r.sentiment is not None:
             dated.append((r.date, r.sentiment))
 
-    if len(dated) < 3:
+    if len(dated) < MIN_RECORDS_FOR_TREND:
         return "unknown"
 
     # Ordina per data
@@ -318,6 +319,12 @@ def _compute_trend(records: list[Record]) -> str:
 
     denominator = n * sum_x2 - sum_x * sum_x
     if denominator == 0:
+        log.warning(
+            "[aggregator] Trend: denominatore zero con %d record "
+            "(tutti con lo stesso ordinal o dataset degenere). "
+            "Restituito 'stable' come fallback — verificare qualità dei dati.",
+            n,
+        )
         return "stable"
 
     slope = (n * sum_xy - sum_x * sum_y) / denominator

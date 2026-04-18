@@ -85,6 +85,37 @@ if _hf_token:
 
 
 # ---------------------------------------------------------------------------
+# NLP — usate da pipeline/enricher.py
+# ---------------------------------------------------------------------------
+
+# Modello HuggingFace per sentiment analysis multilingue.
+# Fine-tuned su Twitter in 8 lingue.
+# Ref: https://huggingface.co/cardiffnlp/twitter-xlm-roberta-base-sentiment
+SENTIMENT_MODEL: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+
+# Lingue supportate dal modello di sentiment (ISO 639-1).
+# Aggiornare questo set se si cambia modello o si aggiungono lingue.
+# Lingua non presente → sentiment non calcolato (→ None), senza errori.
+SENTIMENT_SUPPORTED_LANGS: frozenset[str] = frozenset({
+    "ar", "en", "fr", "de", "hi", "it", "pt", "es",
+})
+
+# Lunghezza minima del testo (caratteri) per language detection affidabile.
+# Sotto questa soglia langdetect produce risultati inaffidabili e viene skippato.
+# Abbassato a 15 rispetto al default 25: i record brevi (GDELT, NYT abstract)
+# hanno spesso 15-25 chars. La soglia 25 scartava troppi record con solo titolo.
+NLP_MIN_LEN_DETECT: int = 15
+
+# Lunghezza minima del testo (caratteri) per sentiment analysis affidabile.
+# Sotto questa soglia il modello XLM-RoBERTa produce punteggi instabili.
+NLP_MIN_LEN_SENTIMENT: int = 15
+
+# Numero minimo di record con (data, sentiment) per calcolare il trend.
+# Con meno record la regressione lineare non è statisticamente significativa.
+MIN_RECORDS_FOR_TREND: int = 3
+
+
+# ---------------------------------------------------------------------------
 # Quality thresholds — usate da pipeline/cleaner.py
 # ---------------------------------------------------------------------------
 
@@ -92,6 +123,24 @@ if _hf_token:
 # Ratio: un articolo con titolo lungo e testo vuoto (es. GDELT) è ancora valido.
 MIN_TEXT_LENGTH:  int = 30   # caratteri minimi nel campo `text`
 MIN_TITLE_LENGTH: int = 5    # caratteri minimi nel campo `title`
+
+# Domini sempre da scartare, indipendentemente dalla qualità del testo.
+# Include redirect di consenso cookie, paywall wall-gate e aggregatori che
+# non espongono contenuto utile. Il cleaner logga un warning per ogni record
+# scartato per dominio.
+BLOCKED_DOMAINS: frozenset[str] = frozenset({
+    # Yahoo consent/cookie gate
+    "consent.yahoo.com",
+    # Google consent interstitial — può apparire come destinazione finale quando
+    # Google News mostra il gate GDPR per articoli internazionali (es. target
+    # anglofoni sul feed IT). Il redirect resolver usa questo come safety net
+    # dopo aver già tentato il fallback all'URL originale.
+    "consent.google.com",
+    # Google AMP redirect (non canonical)
+    "amp.google.com",
+    # Siti di aggregazione puri senza testo originale
+    "smartnews.com",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +166,26 @@ SOURCE_WEIGHTS: dict[str, float] = {
     # Brave Search: web generalista (SEO-shaped). Peso inferiore alle news
     # API native perché qualità e presenza di metadati (data, autore) variano.
     "brave":            0.55,
+    # Google News IT: aggrega testate italiane autorevoli (Corriere, ANSA, ecc.).
+    # Peso simile a GDELT: copertura buona, ma metadati (autore, testo) limitati
+    # dal formato RSS.
+    "gnews_it":         0.75,
+    # Hacker News: community tech con discussioni su business, politica, scienza.
+    # Peso moderato: contenuto spesso di qualità ma fortemente orientato a un
+    # pubblico anglofono e tech-savvy.
+    "hackernews":       0.65,
+    # Reddit: UGC da community generaliste. Peso basso per l'anonimato degli
+    # autori e la variabilità della qualità tra subreddit, ma alta copertura
+    # su target mainstream (politici, brand, personaggi pubblici).
+    "reddit":           0.55,
+    # BBC News: principale emittente pubblica internazionale. Peso alto per
+    # affidabilità e copertura globale. Feed RSS pubblici aggiornati ogni 15
+    # minuti (world, business, technology), nessuna API key richiesta.
+    # Sostituisce Reuters il cui feed feeds.reuters.com è stato dismesso.
+    "bbc":              0.90,
+    # ANSA: principale agenzia di stampa italiana. Peso alto per autorevolezza
+    # nel contesto italiano. Feed RSS aggiornati in tempo reale.
+    "ansa":             0.85,
 }
 
 SOURCE_WEIGHT_DEFAULT: float = 0.50
@@ -169,4 +238,38 @@ TREND_THRESHOLD: float = 0.005
 # l'implementazione: i due livelli esatti coprono la maggioranza dei casi pratici.
 # Questo parametro è mantenuto come punto di configurazione per un'eventuale
 # implementazione futura (cfr. pipeline/deduplicator.py per la motivazione).
+# NOT ACTIVE — riservato per uso futuro. Non viene letto da nessun modulo corrente.
 FUZZY_DEDUP_THRESHOLD: float = 0.85
+
+
+# ---------------------------------------------------------------------------
+# Validazione parametri critici
+# ---------------------------------------------------------------------------
+# Eseguita al momento dell'import: un valore errato in .env o config.py
+# produce un errore esplicito all'avvio invece di comportamenti anomali
+# a runtime (division by zero, score infiniti, ecc.).
+
+def _validate_config() -> None:
+    if VOLUME_HALFSAT < 1:
+        raise ValueError(
+            f"config: VOLUME_HALFSAT deve essere >= 1, ricevuto: {VOLUME_HALFSAT}. "
+            "Valori < 1 causano divisione per zero nel volume_score."
+        )
+    if RECENCY_HALF_LIFE_DAYS < 1:
+        raise ValueError(
+            f"config: RECENCY_HALF_LIFE_DAYS deve essere >= 1, ricevuto: {RECENCY_HALF_LIFE_DAYS}. "
+            "Valori < 1 causano decay esponenziale degenere."
+        )
+    if TREND_THRESHOLD < 0:
+        raise ValueError(
+            f"config: TREND_THRESHOLD deve essere >= 0, ricevuto: {TREND_THRESHOLD}."
+        )
+    _weight_sum = sum(REPUTATION_WEIGHTS.values())
+    if not (0.999 <= _weight_sum <= 1.001):
+        raise ValueError(
+            f"config: REPUTATION_WEIGHTS deve sommare a 1.0, somma attuale: {_weight_sum:.4f}. "
+            "Aggiustare i pesi in config.py."
+        )
+
+
+_validate_config()

@@ -57,6 +57,8 @@ def filter_by_date(records: list[Record], since: str | None) -> tuple[list[Recor
     if not since:
         return records, 0
 
+    since_date = date.fromisoformat(since)  # già validato da parse_since
+
     kept: list[Record] = []
     dropped = 0
     for r in records:
@@ -64,8 +66,17 @@ def filter_by_date(records: list[Record], since: str | None) -> tuple[list[Recor
         if not r.date:
             kept.append(r)
             continue
-        # confronto lessicografico: 'YYYY-MM-DD' è ordinabile come stringa
-        if r.date >= since:
+        try:
+            record_date = date.fromisoformat(r.date)
+        except (ValueError, TypeError):
+            # data malformata nel record → manteniamo per principio di conservazione
+            log.debug(
+                "[date_filter] Data malformata '%s' in record [source=%s], mantenuto.",
+                r.date, r.source,
+            )
+            kept.append(r)
+            continue
+        if record_date >= since_date:
             kept.append(r)
         else:
             dropped += 1

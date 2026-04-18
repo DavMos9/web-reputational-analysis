@@ -27,7 +27,7 @@ import logging
 import unicodedata
 from dataclasses import replace
 
-from config import MIN_TEXT_LENGTH, MIN_TITLE_LENGTH
+from config import MIN_TEXT_LENGTH, MIN_TITLE_LENGTH, BLOCKED_DOMAINS
 from models import Record
 
 log = logging.getLogger(__name__)
@@ -102,6 +102,16 @@ def filter_quality(records: list[Record]) -> tuple[list[Record], int]:
     skipped = 0
 
     for r in records:
+        # --- Filtro 1: dominio bloccato (consent pages, redirect gate, ecc.) ---
+        if r.domain and r.domain in BLOCKED_DOMAINS:
+            log.warning(
+                "[cleaner] Scartato per dominio bloccato [source=%s, domain=%s]: '%s'",
+                r.source, r.domain, (r.title or "")[:80],
+            )
+            skipped += 1
+            continue
+
+        # --- Filtro 2: qualità del contenuto (testo e titolo sotto soglia) ---
         text_len  = len(r.text  or "")
         title_len = len(r.title or "")
 

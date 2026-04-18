@@ -38,7 +38,9 @@ ALL_SOURCES = list(REGISTRY.keys())
 #   - stackexchange: full-text match sul body delle domande, quindi nomi propri
 #     risultano spesso come stringhe di test in esempi di codice (rumore).
 #     Ha senso solo per target tech (librerie, framework, prodotti software).
-OPT_IN_SOURCES = frozenset({"stackexchange"})
+#   - hackernews: community prevalentemente anglofona e tech-savvy. Utile per
+#     target aziendali o figure tech; rumorosa per personaggi pubblici non-tech.
+OPT_IN_SOURCES = frozenset({"stackexchange", "hackernews"})
 
 DEFAULT_SOURCES = [s for s in ALL_SOURCES if s not in OPT_IN_SOURCES]
 
