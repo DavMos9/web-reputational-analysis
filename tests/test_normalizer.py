@@ -427,8 +427,18 @@ class TestNormalizeBrave:
 # ---------------------------------------------------------------------------
 
 class TestNormalizeUnknownSource:
-    def test_unknown_source_returns_none(self):
+    def test_unknown_source_uses_fallback_normalizer(self):
+        """Sorgente sconosciuta → fallback generico, non scarto."""
         raw = _raw("unknown_source", {"url": "https://example.com", "title": "X"})
+        record = normalize(raw)
+        assert record is not None
+        assert record.source == "unknown_source"
+        assert record.url == "https://example.com"
+        assert record.title == "X"
+
+    def test_unknown_source_no_url_returns_none(self):
+        """Sorgente sconosciuta senza URL recuperabile → scartato anche dal fallback."""
+        raw = _raw("unknown_source", {"title": "No URL here"})
         assert normalize(raw) is None
 
 
@@ -453,11 +463,22 @@ class TestNormalizeAll:
         assert len(results) == 3
 
     def test_mixed_valid_and_invalid(self):
-        """Record senza URL vengono scartati silenziosamente."""
+        """Record senza URL vengono scartati; sorgente sconosciuta con URL usa il fallback."""
         raws = [
             _raw("news", {"title": "Valid", "url": "https://example.com/valid"}),
-            _raw("news", {"title": "Invalid"}),          # URL mancante → scartato
-            _raw("unknown", {"url": "https://x.com"}),  # sorgente sconosciuta → scartato
+            _raw("news", {"title": "Invalid"}),              # URL mancante → scartato
+            _raw("unknown", {"url": "https://x.com"}),       # fallback: ha URL → tenuto
+        ]
+        results = normalize_all(raws)
+        assert len(results) == 2
+        assert results[0].title == "Valid"
+        assert results[1].url == "https://x.com"
+
+    def test_unknown_source_no_url_discarded(self):
+        """Sorgente sconosciuta senza URL recuperabile → scartata anche dal fallback."""
+        raws = [
+            _raw("news", {"title": "Valid", "url": "https://example.com/valid"}),
+            _raw("unknown", {"title": "No URL"}),  # fallback: nessun URL → scartato
         ]
         results = normalize_all(raws)
         assert len(results) == 1

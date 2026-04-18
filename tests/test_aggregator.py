@@ -167,12 +167,29 @@ class TestSourceTrust:
         trust = _compute_source_trust(records)
         assert abs(trust - 1.0) < 1e-4
 
-    def test_mixed_sources(self):
-        r1 = _record(source="guardian", url="https://a.com/1")  # 1.00
-        r2 = _record(source="youtube_comments", url="https://b.com/2")  # 0.55
+    def test_mixed_sources_filters_low_trust(self):
+        """youtube_comments (0.55) < MIN_SOURCE_TRUST (0.60) → escluso dalla media."""
+        r1 = _record(source="guardian", url="https://a.com/1")  # 1.00 — incluso
+        r2 = _record(source="youtube_comments", url="https://b.com/2")  # 0.55 — escluso
         trust = _compute_source_trust([r1, r2])
-        expected = (1.00 + 0.55) / 2
-        assert abs(trust - expected) < 1e-4
+        # Solo guardian supera MIN_SOURCE_TRUST → trust = 1.00
+        assert abs(trust - 1.00) < 1e-4
+
+    def test_all_sources_below_threshold_uses_fallback(self):
+        """Tutti sotto soglia → fallback su tutti i record."""
+        r1 = _record(source="reddit", url="https://a.com/1")          # 0.55
+        r2 = _record(source="youtube_comments", url="https://b.com/2") # 0.55
+        trust = _compute_source_trust([r1, r2])
+        # Fallback: media di tutti (entrambi 0.55)
+        assert abs(trust - 0.55) < 1e-4
+
+    def test_trust_includes_sources_at_threshold(self):
+        """Sorgenti con peso esattamente pari a MIN_SOURCE_TRUST sono incluse."""
+        r1 = _record(source="mastodon", url="https://a.com/1")  # 0.60 == soglia → incluso
+        r2 = _record(source="reddit", url="https://b.com/2")    # 0.55 < soglia → escluso
+        trust = _compute_source_trust([r1, r2])
+        # Solo mastodon (0.60) incluso
+        assert abs(trust - 0.60) < 1e-4
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-from normalizers.registry import normalize, normalize_all, registered_sources
+from normalizers.registry import normalize, normalize_all, registered_sources, REGISTRY
 
 # Moduli interni del package da non importare come normalizer
 _EXCLUDED: frozenset[str] = frozenset({"registry", "utils"})
@@ -37,4 +37,4 @@ for _importer, _modname, _ispkg in pkgutil.iter_modules(__path__):
 
 del _importer, _modname, _ispkg  # pulizia namespace
 
-__all__ = ["normalize", "normalize_all", "registered_sources"]
+__all__ = ["normalize", "normalize_all", "registered_sources", "REGISTRY"]

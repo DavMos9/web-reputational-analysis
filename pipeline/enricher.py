@@ -148,13 +148,19 @@ def _normalize_language_code(raw_lang: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 # Seed deterministico: stessa stringa → stesso risultato su ogni esecuzione.
-# Import lazy: se langdetect non è installato, detect_language restituirà None.
+# Verifica disponibilità a livello di modulo: il warning viene emesso una
+# sola volta all'import, non ripetuto ad ogni chiamata a detect_language().
 try:
     from langdetect import DetectorFactory as _DetectorFactory
     _DetectorFactory.seed = 0
     del _DetectorFactory
+    _LANGDETECT_AVAILABLE: bool = True
 except ImportError:
-    pass
+    _LANGDETECT_AVAILABLE = False
+    log.warning(
+        "langdetect non installato — language detection disabilitata. "
+        "Installare con: pip install langdetect"
+    )
 
 
 def detect_language(text: str) -> str | None:
@@ -169,6 +175,9 @@ def detect_language(text: str) -> str | None:
         - testo troppo corto (< _MIN_LEN_DETECT caratteri)
         - rilevamento fallisce per qualsiasi motivo
     """
+    if not _LANGDETECT_AVAILABLE:
+        return None
+
     if len(text) < _MIN_LEN_DETECT:
         return None
 
@@ -178,12 +187,6 @@ def detect_language(text: str) -> str | None:
         raw = detect(text)
         return _normalize_language_code(raw)
 
-    except ImportError:
-        log.warning(
-            "langdetect non installato. Language detection disabilitata. "
-            "Installare con: pip install langdetect"
-        )
-        return None
     except Exception as exc:
         # LangDetectException viene sollevata su testi ambigui o troppo brevi
         log.debug(

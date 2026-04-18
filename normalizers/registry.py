@@ -16,16 +16,73 @@ Design:
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from types import MappingProxyType
+from typing import Callable, Mapping
 
 from models import RawRecord, Record
+from normalizers.utils import first_non_empty, to_date, to_domain, to_url
 
 log = logging.getLogger(__name__)
 
 NormalizerFn = Callable[[RawRecord], Record | None]
 
-# Registro interno: source_id → funzione normalizer
+# Registro interno mutabile: solo register() può scriverci.
+# Accesso esterno in sola lettura tramite REGISTRY (MappingProxyType).
 _REGISTRY: dict[str, NormalizerFn] = {}
+
+# View read-only esposta pubblicamente.
+# MappingProxyType riflette dinamicamente il dict sottostante:
+# le registrazioni successive a register() sono visibili, ma nessuno
+# può mutare REGISTRY direttamente (TypeError su tentativi di assegnazione).
+REGISTRY: Mapping[str, NormalizerFn] = MappingProxyType(_REGISTRY)
+
+# Chiavi comuni per titolo/testo/url/data — usate dal fallback normalizer.
+# L'ordine riflette la priorità: il primo valore non vuoto viene usato.
+_TITLE_KEYS  = ("title", "headline", "name", "subject", "webTitle")
+_TEXT_KEYS   = ("text", "body", "content", "description", "trailText", "selftext")
+_URL_KEYS    = ("url", "link", "webUrl", "ap_id", "uri", "shortUrl")
+_DATE_KEYS   = ("date", "published", "published_at", "webPublicationDate",
+                "pubDate", "created_at", "createdUtc")
+
+
+def _fallback_normalize(raw: RawRecord) -> Record | None:
+    """
+    Normalizer generico di fallback per sorgenti senza normalizer registrato.
+
+    Tenta di estrarre titolo, testo, URL e data cercando chiavi comuni nel
+    payload. Se nessun URL è recuperabile, restituisce None (record inutilizzabile).
+    Non è preciso come un normalizer specifico, ma evita di scartare silenziosamente
+    record che contengono informazioni utilizzabili.
+    """
+    p = raw.payload
+    url = to_url(first_non_empty(*(str(p.get(k) or "") for k in _URL_KEYS)))
+    if not url:
+        log.warning(
+            "[fallback] Sorgente '%s': URL non trovato nel payload — record scartato.",
+            raw.source,
+        )
+        return None
+
+    return Record(
+        source=raw.source,
+        title=first_non_empty(*(str(p.get(k) or "") for k in _TITLE_KEYS)),
+        text=first_non_empty(*(str(p.get(k) or "") for k in _TEXT_KEYS)),
+        date=to_date(
+            first_non_empty(*(str(p.get(k) or "") for k in _DATE_KEYS)) or None
+        ),
+        url=url,
+        query=raw.query,
+        target=raw.target,
+        author=first_non_empty(
+            str(p.get("author") or ""),
+            str(p.get("byline") or ""),
+            str(p.get("creator") or ""),
+        ),
+        language=None,
+        domain=to_domain(url),
+        retrieved_at=raw.retrieved_at,
+        raw_payload=p,
+    )
 
 
 def register(source_name: str, fn: NormalizerFn) -> None:
@@ -73,8 +130,12 @@ def normalize(raw: RawRecord) -> Record | None:
     """
     fn = _REGISTRY.get(raw.source)
     if fn is None:
-        log.warning("Sorgente sconosciuta '%s': record scartato.", raw.source)
-        return None
+        log.warning(
+            "Sorgente sconosciuta '%s': nessun normalizer registrato, "
+            "uso fallback generico.",
+            raw.source,
+        )
+        fn = _fallback_normalize
 
     try:
         record = fn(raw)

@@ -1,0 +1,39 @@
+# requirements-lock.txt
+#
+# Versioni pinnate delle dipendenze verificate su questo progetto.
+# Generato con: pip show <package> | grep Version
+# Data: 2026-04-18
+#
+# UTILIZZO:
+#   pip install -r requirements-lock.txt
+#
+# Aggiornamento:
+#   pip install -U -r requirements.txt
+#   pip freeze | grep -f <(cut -d'>' -f1 requirements.txt | tr -d ' ') > requirements-lock.txt
+#
+# Le dipendenze NLP (transformers, torch, sentencepiece, tiktoken) sono opzionali
+# e installate separatamente (peso ~2 GB). Le versioni minime sono documentate
+# in requirements.txt. Qui vengono omesse per non vincolare chi usa solo il core.
+
+# ── Core runtime ────────────────────────────────────────────────────────────
+requests==2.33.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+Wikipedia-API==0.14.1
+
+# Dipendenze transitive di requests (incluse per riproducibilità)
+urllib3==2.6.3
+certifi==2026.2.25
+charset-normalizer==3.4.6
+idna==3.11
+
+# ── Development / test ──────────────────────────────────────────────────────
+pytest==9.0.3
+
+# ── NLP opzionali (commentate — installare separatamente se necessario) ──────
+# langdetect>=1.0.9
+# transformers>=4.35.0
+# torch>=2.0.0
+# sentencepiece>=0.1.99
+# protobuf>=3.20.0
+# tiktoken>=0.5.0

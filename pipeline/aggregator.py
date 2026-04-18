@@ -33,6 +33,7 @@ from models import Record
 from config import (
     SOURCE_WEIGHTS,
     SOURCE_WEIGHT_DEFAULT,
+    MIN_SOURCE_TRUST,
     REPUTATION_WEIGHTS,
     RECENCY_HALF_LIFE_DAYS,
     VOLUME_HALFSAT,
@@ -181,11 +182,15 @@ def _compute_weighted_sentiment(records: list[Record]) -> tuple[float | None, fl
 
 def _compute_source_trust(records: list[Record]) -> float:
     """
-    Media pesata dell'autorevolezza delle sorgenti.
+    Media semplice dell'autorevolezza delle sorgenti.
 
-    Ogni record contribuisce con il peso della sua sorgente.
-    Il risultato è la media semplice dei pesi — misura la qualità
-    complessiva del mix di fonti raccolte.
+    Usa solo i record il cui peso sorgente è >= MIN_SOURCE_TRUST per evitare
+    che sorgenti UGC ad alto volume (mastodon, reddit, brave) abbassino
+    artificialmente la media di trust quando la copertura editoriale è alta.
+
+    Fallback: se TUTTI i record hanno peso < MIN_SOURCE_TRUST, la media viene
+    calcolata su tutti i record per evitare trust_avg = 0.0 su dataset
+    composti interamente da sorgenti UGC.
 
     Returns:
         Score in [0.0, 1.0].
@@ -193,7 +198,26 @@ def _compute_source_trust(records: list[Record]) -> float:
     if not records:
         return 0.0
 
-    weights = [_get_source_weight(r.source) for r in records]
+    all_weights = [(r, _get_source_weight(r.source)) for r in records]
+    trusted = [(r, w) for r, w in all_weights if w >= MIN_SOURCE_TRUST]
+
+    if trusted:
+        selected = trusted
+        if len(trusted) < len(all_weights):
+            log.debug(
+                "source_trust: %d/%d record da sorgenti sotto soglia (%.2f) esclusi.",
+                len(all_weights) - len(trusted), len(all_weights), MIN_SOURCE_TRUST,
+            )
+    else:
+        # Fallback: tutte le sorgenti sotto soglia → usa comunque tutti i record
+        log.debug(
+            "source_trust: tutti i %d record sotto la soglia MIN_SOURCE_TRUST=%.2f. "
+            "Fallback su tutti i record.",
+            len(all_weights), MIN_SOURCE_TRUST,
+        )
+        selected = all_weights
+
+    weights = [w for _, w in selected]
     return round(sum(weights) / len(weights), 6)
 
 

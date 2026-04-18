@@ -190,6 +190,28 @@ SOURCE_WEIGHTS: dict[str, float] = {
 
 SOURCE_WEIGHT_DEFAULT: float = 0.50
 
+# Soglia minima di affidabilità per includere una sorgente nel calcolo di
+# source_trust_avg. I record il cui peso sorgente è inferiore a questa soglia
+# vengono esclusi dalla media di trust (ma non dalla pipeline o dagli altri
+# score come sentiment, volume e recency).
+#
+# Motivazione: sorgenti UGC a bassa autorevolezza (reddit, brave, wikitalk,
+# youtube_comments — peso 0.55) in grandi volumi abbassano artificialmente
+# source_trust_avg anche quando la copertura editoriale è eccellente.
+# Con questa soglia si calcola la trust solo sulle sorgenti che superano
+# il livello minimo di credibilità editoriale.
+#
+# Valori indicativi:
+#   0.55 → esclude solo il default (0.50); wikitalk/reddit/brave/yt_comments
+#           inclusi perché al limite della soglia
+#   0.60 → esclude wikitalk (0.55), reddit (0.55), brave (0.55),
+#           youtube_comments (0.55) — include mastodon (0.60) e tutto sopra
+#   0.65 → esclude anche mastodon (0.60) e youtube (0.65 — al limite)
+#
+# Se TUTTI i record appartengono a sorgenti sotto soglia, il calcolo
+# usa tutti i record come fallback per evitare trust_avg = 0.0.
+MIN_SOURCE_TRUST: float = 0.60
+
 
 # ---------------------------------------------------------------------------
 # Aggregation — usate da pipeline/aggregator.py
@@ -250,6 +272,11 @@ FUZZY_DEDUP_THRESHOLD: float = 0.85
 # a runtime (division by zero, score infiniti, ecc.).
 
 def _validate_config() -> None:
+    if not (0.0 <= MIN_SOURCE_TRUST <= 1.0):
+        raise ValueError(
+            f"config: MIN_SOURCE_TRUST deve essere in [0.0, 1.0], "
+            f"ricevuto: {MIN_SOURCE_TRUST}."
+        )
     if VOLUME_HALFSAT < 1:
         raise ValueError(
             f"config: VOLUME_HALFSAT deve essere >= 1, ricevuto: {VOLUME_HALFSAT}. "

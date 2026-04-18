@@ -141,9 +141,12 @@ pip install -e .
 
 # Installa anche le dipendenze NLP (consigliato per enrichment completo)
 pip install -e ".[nlp]"
+
+# Alternativa: installa con versioni pinnate (massima riproducibilità)
+pip install -r requirements-lock.txt
 ```
 
-> **Nota:** il modello XLM-RoBERTa per il sentiment (~1.1 GB) viene scaricato automaticamente da HuggingFace alla prima esecuzione e cachato localmente.
+> **Nota:** il modello XLM-RoBERTa per il sentiment (~1.1 GB) viene scaricato automaticamente da HuggingFace alla prima esecuzione e cachato localmente. Se le dipendenze NLP non sono installate, la pipeline emette un `WARNING` all'avvio e continua con `language` e `sentiment` a `null`.
 
 ---
 
