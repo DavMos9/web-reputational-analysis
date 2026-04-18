@@ -1,6 +1,6 @@
 [project]
 name = "web-reputational-analysis"
-version = "0.1.0"
+version = "0.4.0"
 description = "Pipeline per la raccolta, normalizzazione ed esportazione di dati da fonti web per web reputational analysis."
 requires-python = ">=3.11"
 dependencies = [
