@@ -1,23 +1,6 @@
-"""
-normalizers/mastodon.py
+"""normalizers/mastodon.py — Normalizer per Mastodon API (source_id: "mastodon").
 
-Normalizer per Mastodon API (/api/v2/search statuses, /api/v1/timelines/tag).
-
-Payload raw atteso (entity Status):
-    id:                str
-    created_at:        str (ISO 8601)
-    content:           str (HTML con tag <p>, <a>, <span>, ecc.)
-    spoiler_text:      str (Content Warning, se presente)
-    url:               str (permalink web)
-    account:           dict con display_name, acct, url
-    favourites_count:  int
-    reblogs_count:     int
-    replies_count:     int
-    language:          str | None (ISO 639-1)
-    _instance:         str (iniettato dal collector)
-
-I post Mastodon non hanno titolo. Se c'è un Content Warning (spoiler_text),
-lo usiamo come titolo — è la prassi del fediverse.
+I post non hanno titolo. spoiler_text (Content Warning) viene usato come title se presente.
 """
 
 from __future__ import annotations
@@ -31,23 +14,13 @@ from normalizers.utils import to_date, to_url, first_non_empty, to_int, HTML_TAG
 
 
 def _html_to_text(content: str) -> str:
-    """
-    Converte contenuto HTML Mastodon in testo pulito.
-
-    - Sostituisce <br> e </p><p> con newline
-    - Rimuove tutti i tag HTML
-    - Decodifica entità HTML
-    - Strip whitespace ridondante
-    """
+    """HTML Mastodon → testo pulito (br/paragrafi → newline, strip tag e entità)."""
     if not content:
         return ""
-    # <br> e varianti → newline
     text = re.sub(r"<br\s*/?>", "\n", content)
-    # </p><p> → doppio newline (cambio paragrafo)
     text = re.sub(r"</p>\s*<p>", "\n\n", text)
     text = HTML_TAG_RE.sub("", text)
     text = html.unescape(text)
-    # Normalizza whitespace (preserva singoli newline)
     lines = [line.strip() for line in text.splitlines()]
     text = "\n".join(line for line in lines if line)
     return text.strip()
@@ -62,13 +35,8 @@ def _normalize(raw: RawRecord) -> Record:
     spoiler_text = p.get("spoiler_text", "")
     text = _html_to_text(content_html)
 
-    # Spoiler text (Content Warning) come titolo, se presente
     title = spoiler_text.strip() if spoiler_text else ""
-
-    # URL: usa il campo url del post, oppure costruisci dal campo uri
     post_url = to_url(p.get("url") or p.get("uri", ""))
-
-    # Autore: display_name preferito, fallback su acct (user@instance)
     author = first_non_empty(
         account.get("display_name"),
         account.get("acct"),
@@ -83,12 +51,12 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=author,
-        language=p.get("language"),   # ISO 639-1 se dichiarato dal client, None altrimenti
+        language=p.get("language"),
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(p.get("favourites_count")),
         comments_count=to_int(p.get("replies_count")),
-        views_count=to_int(p.get("reblogs_count")),  # reblogs come proxy di visibilità
+        views_count=to_int(p.get("reblogs_count")),
         raw_payload=p,
     )
 

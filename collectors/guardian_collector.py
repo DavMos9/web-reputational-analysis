@@ -23,12 +23,6 @@ class GuardianCollector(BaseCollector):
     source_id = "guardian"
 
     def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (max 200 per richiesta).
-        """
         if not GUARDIAN_API_KEY:
             self._log_skip("GUARDIAN_API_KEY non configurata")
             return []

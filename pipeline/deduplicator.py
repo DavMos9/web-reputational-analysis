@@ -1,25 +1,8 @@
 """
-pipeline/deduplicator.py
+pipeline/deduplicator.py — Deduplicazione a due livelli: URL canonico e titolo+dominio.
 
-Rimuove Record duplicati su due livelli:
-
-Livello 1 — URL identico (stesso articolo, sorgenti o URL tracking diversi)
-Livello 2 — Titolo + dominio identici (stesso articolo con URL lievemente diverso:
-            parametri di tracking, redirect, versioni AMP, ecc.)
-
-Il livello 2 viene SALTATO per sorgenti "parent-child" dove molti record
-distinti condividono lo stesso `title` del contenitore (es. commenti YouTube,
-che ereditano il titolo del video). Per quelle fonti l'identità va cercata
-altrove (URL distinto, testo del singolo commento).
-
---- Approcci non implementati ---
-Fuzzy deduplication (similarità Jaccard/coseno sul testo) è stata valutata
-ma non implementata: i due livelli URL + titolo/dominio coprono la stragrande
-maggioranza dei duplicati pratici con costo O(n) e nessuna dipendenza esterna.
-Fuzzy dedup richiederebbe O(n²) confronti o indicizzazione LSH, e introduce
-falsi positivi su record semanticamente distinti ma lessicalmente simili
-(es. aggiornamenti di breaking news). Da valutare se il dataset cresce
-significativamente o se emergono duplicati residui sistematici.
+Fuzzy dedup (Jaccard/LSH) non implementato: O(n) con nessuna dipendenza è sufficiente.
+Sorgenti parent-child (youtube_comments, wikitalk) saltano il livello titolo+dominio.
 """
 
 from __future__ import annotations
@@ -32,42 +15,22 @@ from models import Record
 
 log = logging.getLogger(__name__)
 
-# Parametri di tracking da ignorare nella comparazione degli URL
 _TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
     "ref", "referer", "referrer", "source", "fbclid", "gclid", "msclkid",
     "mc_eid", "mc_cid", "_ga",
 }
 
-# Sorgenti per cui il fragment URL è semanticamente rilevante e NON va scartato
-# nella canonicalizzazione. Esempio: Wikipedia Talk Pages, dove ogni sezione
-# (#Section_title) è una conversazione distinta — tutte sulla stessa pagina,
-# ma ognuna è un record autonomo.
+# wikitalk: il fragment (#Section) identifica la conversazione; non va scartato.
 _FRAGMENT_PRESERVING_SOURCES = frozenset({"wikitalk"})
 
-# Sorgenti "parent-child" dove molti record distinti condividono lo stesso
-# `title` (ereditato dal contenitore): per loro il dedup di livello 2
-# (title + domain) collasserebbe erroneamente tutti i figli in uno solo.
-# Per queste fonti applichiamo solo il livello 1 (URL canonico).
-#   - youtube_comments: ogni commento ha title = titolo del video parent;
-#     l'identità è nel query-param `lc=<comment_id>` dell'URL.
-#   - wikitalk: il Livello 1 usa già il fragment URL (#Section) come chiave
-#     discriminante (preserve_fragment=True). Il Livello 2 (title + domain)
-#     creerebbe falsi positivi: sezioni Talk di pagine diverse con lo stesso
-#     titolo generico (es. "Note", "Discussione") e lo stesso dominio
-#     (es. it.wikipedia.org) verrebbero erroneamente collassate.
+# Sorgenti in cui il title è ereditato dal contenitore (youtube_comments: titolo video;
+# wikitalk: titolo di sezione generico). Il dedup title+domain creerebbe falsi positivi.
 _TITLE_DEDUP_EXCLUDED_SOURCES = frozenset({"youtube_comments", "wikitalk"})
 
 
 def _canonical_url(url: str, *, preserve_fragment: bool = False) -> str:
-    """
-    Normalizza un URL per la comparazione:
-    - lowercase scheme e host
-    - rimuove parametri di tracking
-    - rimuove trailing slash
-    - scarta il fragment, eccetto quando `preserve_fragment=True` (es. wikitalk:
-      `#Section` identifica la conversazione).
-    """
+    """Normalizza URL: lowercase, rimuove tracking params e trailing slash. Preserva fragment se richiesto."""
     if not url:
         return ""
     try:
@@ -88,11 +51,7 @@ def _canonical_url(url: str, *, preserve_fragment: bool = False) -> str:
 
 
 def _canonical_title(title: str) -> str:
-    """
-    Normalizza un titolo per la comparazione:
-    - lowercase
-    - rimuove punteggiatura e spazi multipli
-    """
+    """Normalizza titolo: lowercase, rimuove punteggiatura e spazi multipli."""
     if not title:
         return ""
     t = re.sub(r"[^\w\s]", "", title.lower())
@@ -100,15 +59,7 @@ def _canonical_title(title: str) -> str:
 
 
 def deduplicate(records: list[Record]) -> tuple[list[Record], int]:
-    """
-    Rimuove duplicati da una lista di Record.
-
-    Args:
-        records: lista di Record puliti e normalizzati.
-
-    Returns:
-        Tupla (record_unici, numero_duplicati_rimossi).
-    """
+    """Rimuove duplicati. Ritorna (record_unici, n_rimossi)."""
     seen_urls: set[str] = set()
     seen_title_domain: set[tuple[str, str]] = set()
 
@@ -122,14 +73,10 @@ def deduplicate(records: list[Record]) -> tuple[list[Record], int]:
         domain_key = (record.domain or "").lower().strip()
         skip_title_dedup = record.source in _TITLE_DEDUP_EXCLUDED_SOURCES
 
-        # Livello 1: URL canonico identico
         if url_key and url_key in seen_urls:
             removed += 1
             continue
 
-        # Livello 2: titolo + dominio identici (skippato per sorgenti parent-child).
-        # Per quelle fonti il title non è discriminante — più record distinti
-        # condividono lo stesso titolo, quindi non va né controllato né indicizzato.
         if not skip_title_dedup:
             td_key = (title_key, domain_key)
             if title_key and domain_key and td_key in seen_title_domain:

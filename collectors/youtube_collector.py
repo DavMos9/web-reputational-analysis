@@ -23,12 +23,6 @@ class YouTubeCollector(BaseCollector):
     source_id = "youtube"
 
     def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (max 50 per richiesta).
-        """
         if not YOUTUBE_API_KEY:
             self._log_skip("YOUTUBE_API_KEY non configurata")
             return []
@@ -55,7 +49,6 @@ class YouTubeCollector(BaseCollector):
             self._log_collected(query, 0)
             return []
 
-        # Recupera statistiche per tutti i video in una sola chiamata
         video_ids = [
             item["id"]["videoId"]
             for item in items
@@ -69,7 +62,6 @@ class YouTubeCollector(BaseCollector):
             if not video_id:
                 continue
 
-            # Arricchisce il payload con statistiche e rank prima di salvarlo
             payload = {
                 **item,
                 "statistics": stats_map.get(video_id, {}),
@@ -80,10 +72,8 @@ class YouTubeCollector(BaseCollector):
         self._log_collected(query, len(records))
         return records
 
-    # ------------------------------------------------------------------
-
     def _fetch_stats(self, video_ids: list[str]) -> dict[str, dict]:
-        """Recupera views, likes, comments per una lista di video ID."""
+        """Recupera statistiche per una lista di video in una sola chiamata."""
         if not video_ids:
             return {}
 

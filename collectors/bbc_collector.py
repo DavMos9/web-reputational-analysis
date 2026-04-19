@@ -1,32 +1,6 @@
-"""
-collectors/bbc_collector.py
+"""collectors/bbc_collector.py — BBC News RSS. Nessuna API key.
 
-Collector per BBC News tramite feed RSS pubblici.
-
-Endpoint (nessuna API key richiesta):
-    https://feeds.bbci.co.uk/news/world/rss.xml        — notizie mondiali
-    https://feeds.bbci.co.uk/news/business/rss.xml     — economia e business
-    https://feeds.bbci.co.uk/news/technology/rss.xml   — tecnologia
-    https://feeds.bbci.co.uk/news/politics/rss.xml     — politica UK/Europa
-
-BBC News è una delle principali fonti giornalistiche internazionali. I feed RSS
-coprono le principali categorie editoriali e vengono aggiornati ogni 15 minuti.
-
-Strategia di raccolta (identica al pattern RSS del progetto):
-    - Scarica i tre feed in parallelo.
-    - Filtra gli item il cui titolo o descrizione contiene almeno uno dei termini
-      della query (case-insensitive, split su spazi, termini con ≥ 3 caratteri).
-    - Deduplicazione per URL prima di restituire i record.
-    - Restituisce fino a max_results record ordinati per data (più recenti prima).
-
-Limiti:
-    - Copertura limitata agli articoli presenti nei feed al momento della raccolta
-      (tipicamente 30 item per feed, aggiornati ogni 15 minuti).
-    - Il filtro per query è client-side: per query molto specifiche il volume
-      può essere basso o zero.
-    - I feed BBC non includono il campo dc:creator: author è sempre None.
-    - Language è impostata a None nel normalizer: l'enricher la rileva via langdetect
-      (BBC pubblica principalmente in inglese ma occasionalmente in altre lingue).
+I feed BBC non includono dc:creator, quindi author è sempre None nel normalizer.
 """
 
 from __future__ import annotations
@@ -44,12 +18,11 @@ from models import RawRecord
 
 log = logging.getLogger(__name__)
 
-# Feed RSS BBC News pubblici — copertura notizie mondiali, business, tech e politica.
 _RSS_FEEDS: list[str] = [
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
     "https://feeds.bbci.co.uk/news/technology/rss.xml",
-    "https://feeds.bbci.co.uk/news/politics/rss.xml",  # UK/Europa — utile per target politici
+    "https://feeds.bbci.co.uk/news/politics/rss.xml",
 ]
 
 _HEADERS = {
@@ -67,15 +40,8 @@ class BbcCollector(BaseCollector):
         max_results: int = 20,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca usata per filtrare gli item RSS.
-            max_results: numero massimo di record da restituire.
-        """
         items = self._fetch_all_feeds(timeout=15)
 
-        # Filtro rilevanza: almeno un termine (>= 3 caratteri) in titolo o descrizione.
         terms = [t.lower() for t in query.split() if len(t) > 2]
         if terms:
             items = [
@@ -83,7 +49,6 @@ class BbcCollector(BaseCollector):
                 if self._is_relevant(item, terms)
             ]
 
-        # Deduplicazione per URL
         seen_urls: set[str] = set()
         unique: list[dict] = []
         for item in items:
@@ -92,7 +57,6 @@ class BbcCollector(BaseCollector):
                 seen_urls.add(url)
                 unique.append(item)
 
-        # Ordina per data decrescente e tronca
         unique.sort(key=lambda x: x.get("pubDate") or "", reverse=True)
         unique = unique[:max_results]
 
@@ -100,10 +64,8 @@ class BbcCollector(BaseCollector):
         self._log_collected(query, len(records))
         return records
 
-    # ------------------------------------------------------------------
-
     def _fetch_all_feeds(self, timeout: int = 15) -> list[dict]:
-        """Scarica tutti i feed RSS BBC in parallelo."""
+        """Scarica tutti i feed RSS in parallelo."""
         all_items: list[dict] = []
 
         def fetch_one(url: str) -> list[dict]:
@@ -127,12 +89,7 @@ class BbcCollector(BaseCollector):
 
     @staticmethod
     def _parse_rss(xml_text: str) -> list[dict]:
-        """
-        Parsa un feed RSS BBC e restituisce lista di dizionari.
-
-        I feed BBC usano CDATA per title e description, gestiti correttamente
-        da xml.etree.ElementTree. Non includono dc:creator: author resta None.
-        """
+        """Parsa un feed RSS e restituisce lista di dizionari."""
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as e:
@@ -155,10 +112,7 @@ class BbcCollector(BaseCollector):
 
     @staticmethod
     def _is_relevant(item: dict, terms: list[str]) -> bool:
-        """
-        Verifica se almeno un termine di ricerca appare nel titolo
-        o nella descrizione (case-insensitive).
-        """
+        """True se almeno un termine appare in titolo o descrizione."""
         haystack = " ".join(filter(None, [
             item.get("title") or "",
             item.get("description") or "",
@@ -167,6 +121,6 @@ class BbcCollector(BaseCollector):
 
 
 def _text(element: ET.Element, tag: str) -> str | None:
-    """Restituisce il testo di un sotto-elemento, None se assente."""
+    """Testo di un sotto-elemento, None se assente."""
     child = element.find(tag)
     return child.text.strip() if child is not None and child.text else None

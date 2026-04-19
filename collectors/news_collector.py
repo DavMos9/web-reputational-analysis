@@ -22,15 +22,7 @@ class NewsCollector(BaseCollector):
     source_id = "news"
 
     def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (max 100 nel piano gratuito).
-            kwargs:
-                language (str): codice lingua ISO 639-1, default "en".
-                                Passare "it" per restringere alle fonti italiane.
-        """
+        """kwargs: language (str ISO 639-1, default "en")."""
         if not NEWS_API_KEY:
             self._log_skip("NEWS_API_KEY non configurata")
             return []
@@ -51,9 +43,7 @@ class NewsCollector(BaseCollector):
 
         articles = data.get("articles", [])
 
-        # Fallback senza filtro lingua: se la lingua era specificata ma non ha
-        # prodotto risultati, riproviamo senza vincolo linguistico. Questo copre
-        # target internazionali/italiani interrogati con language="en" (default).
+        # Fallback senza lingua: copre target non anglofoni interrogati con language="en".
         if not articles and language:
             log.info(
                 "[NewsCollector] 0 risultati con language='%s'. "
@@ -83,10 +73,7 @@ class NewsCollector(BaseCollector):
             )
 
             if response.status_code == 429:
-                log.warning(
-                    "[NewsCollector] Limite giornaliero raggiunto (HTTP 429). "
-                    "Piano gratuito: 100 req/giorno. Riprova domani o passa a un piano superiore."
-                )
+                log.warning("[NewsCollector] Limite giornaliero raggiunto (HTTP 429).")
                 return None
 
             response.raise_for_status()

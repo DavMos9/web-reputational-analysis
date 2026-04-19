@@ -1,30 +1,8 @@
 """
-collectors/gnews_it_collector.py
+collectors/gnews_it_collector.py — Google News RSS (lingua/paese Italia). Nessuna API key.
 
-Collector per Google News RSS filtrato su lingua/paese Italia.
-
-Endpoint (nessuna API key richiesta):
-    https://news.google.com/rss/search?q={query}&hl=it&gl=IT&ceid=IT:it
-
-Questo endpoint restituisce un feed RSS 2.0 con gli articoli più recenti
-e rilevanti indicizzati da Google News per la query fornita, filtrati per
-lingua italiana e paese Italia. Copre le principali testate nazionali
-(Corriere della Sera, Repubblica, ANSA, Il Sole 24 Ore, La Stampa, ecc.)
-senza richiedere API key specifiche per ciascuna.
-
-Risoluzione redirect:
-    Le URL nel feed RSS sono redirect Google (news.google.com/rss/articles/...).
-    Il collector le risolve tramite HEAD request per ottenere il permalink
-    canonico dell'articolo. Il dominio reale viene comunque estratto anche
-    dall'elemento <source url="..."> nel feed (più affidabile, non richiede
-    una richiesta aggiuntiva). La risoluzione redirect è parallela tramite
-    ThreadPoolExecutor per non appesantire il tempo totale di raccolta.
-    In caso di errore la URL originale viene mantenuta come fallback.
-
-Limiti:
-    - Nessuna quota ufficiale documentata; usare con rate limite conservativo.
-    - Il campo `text` da RSS è solitamente breve (snippet/titoli aggregati):
-      il normalizer lo pulisce; il titolo porta l'informazione principale.
+Le URL del feed sono redirect Google: vengono risolte in parallelo via HEAD request.
+consent.google.com viene ignorato come destinazione finale (fallback all'URL originale).
 """
 
 from __future__ import annotations
@@ -43,7 +21,7 @@ from models import RawRecord
 log = logging.getLogger(__name__)
 
 _BASE_URL = "https://news.google.com/rss/search"
-_MAX_RESULTS_CAP = 100  # Google News RSS restituisce al massimo ~100 item
+_MAX_RESULTS_CAP = 100
 
 
 class GNewsItCollector(BaseCollector):
@@ -56,15 +34,7 @@ class GNewsItCollector(BaseCollector):
         max_results: int = 20,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero di risultati desiderati (cap a 100).
-                         Google News RSS non accetta un parametro di limite:
-                         restituisce tutti gli item disponibili (di solito 10-100).
-                         Il cap viene applicato in post-processing.
-        """
+        """max_results applicato in post-processing (RSS non accetta parametro di limite)."""
         params = {
             "q":    query,
             "hl":   "it",
@@ -88,7 +58,6 @@ class GNewsItCollector(BaseCollector):
         items = self._parse_rss(response.text)
         items = items[: min(max_results, _MAX_RESULTS_CAP)]
 
-        # Risolvi i redirect Google in parallelo per ottenere URL canonici.
         items = self._resolve_redirects(items)
 
         records = [
@@ -102,20 +71,7 @@ class GNewsItCollector(BaseCollector):
     # ------------------------------------------------------------------
 
     def _resolve_redirects(self, items: list[dict], timeout: int = 5) -> list[dict]:
-        """
-        Risolve in parallelo i redirect Google News per ogni item.
-
-        Usa ThreadPoolExecutor con un pool limitato (max 8 worker) per non
-        saturare le connessioni. In caso di errore su un singolo item, la URL
-        originale viene mantenuta senza interrompere gli altri.
-
-        Args:
-            items:   lista di dizionari prodotta da _parse_rss.
-            timeout: secondi di timeout per ogni HEAD request.
-
-        Returns:
-            Stessa lista con campo 'link' aggiornato alla URL finale.
-        """
+        """Risolve i redirect Google News in parallelo (max 8 worker)."""
         def resolve_one(item: dict) -> dict:
             original = item.get("link") or ""
             if not original:
@@ -128,11 +84,8 @@ class GNewsItCollector(BaseCollector):
                     headers={"User-Agent": APP_USER_AGENT},
                 )
                 resolved = resp.url
-                # Se Google ha interposto la consent page (es. target anglofoni
-                # sul feed IT), il redirect non porta all'articolo ma alla
-                # pagina GDPR. In quel caso manteniamo l'URL originale: è
-                # comunque un redirect funzionante verso l'articolo ed evita
-                # che il cleaner scarti il record per dominio bloccato.
+                # consent.google.com: gate GDPR su target anglofoni nel feed IT.
+                # In quel caso manteniamo l'URL originale per evitare che il cleaner scarti il record.
                 if resolved and not resolved.startswith("https://consent.google.com"):
                     if resolved != original:
                         return {**item, "link": resolved}
@@ -160,17 +113,7 @@ class GNewsItCollector(BaseCollector):
 
     @staticmethod
     def _parse_rss(xml_text: str) -> list[dict]:
-        """
-        Parsa il feed RSS e restituisce una lista di dizionari con i campi
-        rilevanti per il normalizer.
-
-        Struttura attesa per ogni <item>:
-            <title>...</title>
-            <link>...</link>         ← redirect Google
-            <pubDate>...</pubDate>
-            <description>...</description>
-            <source url="https://...">Nome testata</source>
-        """
+        """Parsa il feed RSS e restituisce una lista di dizionari per il normalizer."""
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as e:

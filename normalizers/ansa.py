@@ -1,22 +1,4 @@
-"""
-normalizers/ansa.py
-
-Normalizer per ANSA RSS (source_id: "ansa").
-
-Payload raw atteso (prodotto da AnsaCollector._parse_rss):
-    title       (str | None): titolo dell'articolo
-    link        (str | None): URL dell'articolo (permalink ANSA)
-    pubDate     (str | None): data pubblicazione RFC 2822
-    description (str | None): abstract/snippet dell'articolo
-
-Note:
-    - `language` è impostata direttamente a "it": ANSA è un'agenzia italiana
-      e tutti i feed sono in italiano.
-    - `domain` è estratto dall'URL (tipicamente "www.ansa.it").
-    - `author` non è disponibile nei feed RSS ANSA: rimane None.
-    - `description` è solitamente breve (1-2 frasi). Il titolo è il campo
-      portante per il sentiment analysis.
-"""
+"""normalizers/ansa.py — Normalizer per ANSA RSS (source_id: "ansa")."""
 
 from __future__ import annotations
 
@@ -39,8 +21,8 @@ def _normalize(raw: RawRecord) -> Record:
         url=url,
         query=raw.query,
         target=raw.target,
-        author=None,             # non disponibile nei feed RSS ANSA
-        language="it",           # agenzia italiana: lingua certa
+        author=None,
+        language="it",
         domain=to_domain(url),
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

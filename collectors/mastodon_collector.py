@@ -1,28 +1,9 @@
 """
-collectors/mastodon_collector.py
+collectors/mastodon_collector.py — Mastodon API v2/v1.
 
-Collector per Mastodon tramite API v2 (ricerca) e v1 (timeline hashtag).
-
-Strategia di raccolta:
-1. Ricerca full-text via /api/v2/search (type=statuses).
-   Funziona senza autenticazione dalla versione 4.0.0, ma la ricerca sugli
-   statuses dipende dalla configurazione ElasticSearch del server.
-   mastodon.social (istanza più grande) ha ElasticSearch attivo.
-2. Fallback: se la ricerca non restituisce statuses, usa la timeline
-   pubblica per hashtag (/api/v1/timelines/tag/:hashtag).
-
-Autenticazione: opzionale, instance-specific.
-- Un access token Mastodon è valido SOLO sull'istanza dove è stato creato.
-  Es: un token creato su mastodon.social funziona solo su mastodon.social.
-- MASTODON_ACCESS_TOKEN + MASTODON_TOKEN_INSTANCE nel .env specificano
-  quale token usare e a quale istanza appartiene.
-- Su istanze senza token: fallback automatico su hashtag timeline (sempre pubblico).
-- Per ottenere un token app-level senza login utente:
-    POST /api/v1/apps → client_id, client_secret
-    POST /oauth/token (grant_type=client_credentials)
-
-Documentazione: https://docs.joinmastodon.org/methods/search/
-Rate limit: 300 richieste / 5 minuti per IP (unauthenticated).
+Strategia: prima ricerca full-text (/api/v2/search, richiede ElasticSearch attivo),
+poi fallback su timeline hashtag (/api/v1/timelines/tag/:hashtag).
+Il token è incluso solo sull'istanza per cui è stato creato (MASTODON_TOKEN_INSTANCE).
 """
 
 from __future__ import annotations
@@ -40,13 +21,8 @@ from models import RawRecord
 
 log = logging.getLogger(__name__)
 
-# Limite massimo dell'API per la ricerca (max 40 per tipo)
-_SEARCH_LIMIT = 40
-
-# Limite per la timeline hashtag
+_SEARCH_LIMIT = 40        # max per tipo imposto dall'API
 _TIMELINE_LIMIT = 40
-
-# Pausa tra richieste a istanze diverse
 _INTER_INSTANCE_DELAY = 0.5
 
 
@@ -61,14 +37,7 @@ class MastodonCollector(BaseCollector):
         instances: tuple[str, ...] | None = None,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati per istanza (max 40).
-            instances:   tuple di istanze Mastodon da interrogare.
-                         Default da config.MASTODON_INSTANCES.
-        """
+        """instances: tuple di istanze (default da config.MASTODON_INSTANCES)."""
         instances = instances or MASTODON_INSTANCES
         limit = min(max_results, _SEARCH_LIMIT)
 
@@ -110,13 +79,7 @@ class MastodonCollector(BaseCollector):
         return self._hashtag_timeline(target, query, instance, base_url, limit)
 
     def _build_headers(self, instance: str) -> dict[str, str]:
-        """
-        Costruisce gli header HTTP.
-
-        Il token viene incluso SOLO se l'istanza corrisponde a quella
-        per cui il token è stato generato (MASTODON_TOKEN_INSTANCE).
-        Un token Mastodon non è valido su istanze diverse dalla propria.
-        """
+        """Il token è incluso solo sull'istanza per cui è stato creato."""
         headers: dict[str, str] = {
             "Accept": "application/json",
         }
@@ -176,10 +139,7 @@ class MastodonCollector(BaseCollector):
         base_url: str,
         limit: int,
     ) -> list[RawRecord]:
-        """
-        Fallback: recupera post dalla timeline pubblica di un hashtag.
-        Converte la query in hashtag rimuovendo spazi e caratteri speciali.
-        """
+        """Fallback su timeline pubblica hashtag."""
         hashtag = self._query_to_hashtag(query)
         if not hashtag:
             log.warning(
@@ -227,14 +187,7 @@ class MastodonCollector(BaseCollector):
 
     @staticmethod
     def _query_to_hashtag(query: str) -> str:
-        """
-        Converte una query di ricerca in un hashtag Mastodon.
-
-        Logica:
-        - Rimuove caratteri non alfanumerici (tranne underscore)
-        - Unisce le parole in CamelCase
-        - Es: "Elon Musk" → "ElonMusk", "open ai" → "OpenAi"
-        """
+        """Converte query in hashtag CamelCase: "Elon Musk" → "ElonMusk"."""
         cleaned = re.sub(r"[^\w\s]", "", query)
         words = cleaned.split()
         if not words:

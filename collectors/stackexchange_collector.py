@@ -1,22 +1,8 @@
 """
-collectors/stackexchange_collector.py
+collectors/stackexchange_collector.py — Stack Exchange API v2.3 (/search/excerpts).
 
-Collector per Stack Exchange Network tramite API v2.3.
-
-Endpoint utilizzato: /2.3/search/excerpts
-- Ricerca full-text su domande E risposte.
-- Restituisce excerpt con titolo, score, autore, data, tag.
-- Copre tutti i siti della rete (stackoverflow, superuser, serverfault, ecc.).
-
-Autenticazione: opzionale.
-- Senza API key: 300 richieste/giorno per IP.
-- Con API key (gratuita): 10.000 richieste/giorno.
-  Registrazione: https://stackapps.com/apps/oauth/register
-
-Documentazione: https://api.stackexchange.com/docs/excerpt-search
-
-Rate limit: il server risponde con header X-RateLimit-Remaining.
-Le risposte sono gzip-compressed (gestito da requests automaticamente).
+Senza API key: 300 req/giorno per IP. Con key: 10.000 req/giorno.
+Le risposte includono backoff e quota_remaining gestiti internamente.
 """
 
 from __future__ import annotations
@@ -35,15 +21,9 @@ log = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.stackexchange.com/2.3"
 
-# Limite massimo imposto dall'API per singola richiesta
 _MAX_PAGESIZE = 100
-
-# Siti di default su cui cercare — i più rilevanti per reputation analysis.
-# L'utente può sovrascrivere tramite il parametro `sites`.
 _DEFAULT_SITES = ("stackoverflow",)
-
-# Pausa tra richieste a siti diversi per rispettare il rate limit
-_INTER_REQUEST_DELAY = 0.5  # secondi
+_INTER_REQUEST_DELAY = 0.5
 
 
 class StackExchangeCollector(BaseCollector):
@@ -58,16 +38,7 @@ class StackExchangeCollector(BaseCollector):
         sort: str = "relevance",
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati per sito (max 100).
-            sites:       tuple di siti Stack Exchange da interrogare.
-                         Default: ("stackoverflow",).
-                         Esempi: ("stackoverflow", "superuser", "askubuntu").
-            sort:        criterio di ordinamento — "relevance" (default) o "votes".
-        """
+        """sites: siti da interrogare (default: ("stackoverflow",)); sort: "relevance"|"votes"."""
         sites = sites or _DEFAULT_SITES
         pagesize = min(max_results, _MAX_PAGESIZE)
 
@@ -116,7 +87,6 @@ class StackExchangeCollector(BaseCollector):
             self._log_error(query, e)
             return []
 
-        # Controllo quota rimanente
         quota_remaining = data.get("quota_remaining")
         if quota_remaining is not None and quota_remaining < 20:
             log.warning(
@@ -125,13 +95,11 @@ class StackExchangeCollector(BaseCollector):
                 quota_remaining,
             )
 
-        # Gestione backoff imposto dal server
         backoff = data.get("backoff")
         if backoff:
             log.info("[%s] Backoff richiesto dal server: %d secondi", self.source_id, backoff)
             time.sleep(backoff)
 
-        # Gestione errori strutturati dall'API
         if "error_id" in data:
             log.error(
                 "[%s] Errore API (site=%s): %s — %s",
@@ -149,7 +117,6 @@ class StackExchangeCollector(BaseCollector):
 
         records = []
         for item in items:
-            # Inietta il sito nel payload per il normalizer
             item["_site"] = site
             records.append(self._make_raw(target, query, item))
 

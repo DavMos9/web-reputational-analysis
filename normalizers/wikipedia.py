@@ -1,12 +1,4 @@
-"""
-normalizers/wikipedia.py
-
-Normalizer per Wikipedia (WikipediaCollector).
-
-Payload raw atteso:
-    title, summary, text, url, language
-Nota: Wikipedia non ha data di pubblicazione.
-"""
+"""normalizers/wikipedia.py — Normalizer per Wikipedia (source_id: "wikipedia"). Nessuna data."""
 
 from __future__ import annotations
 
@@ -22,7 +14,7 @@ def _normalize(raw: RawRecord) -> Record:
         source=raw.source,
         title=first_non_empty(p.get("title")),
         text=first_non_empty(p.get("summary"), p.get("text")),
-        date=None,  # Wikipedia non ha data di pubblicazione
+        date=None,
         url=url,
         query=raw.query,
         target=raw.target,

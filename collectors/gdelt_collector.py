@@ -1,14 +1,8 @@
 """
-collectors/gdelt_collector.py
+collectors/gdelt_collector.py — GDELT DOC 2.0. Gratuito, senza API key.
 
-Collector per GDELT DOC 2.0 (https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/).
-Gratuito, senza API key. Aggiornato ogni 15 minuti, 65+ lingue.
-
-Nota: GDELT applica rate limiting su chiamate ravvicinate e restituisce
-occasionalmente risposte vuote o HTML invece di JSON (transitorie).
-Il metodo _request_with_retry gestisce entrambi i casi con retry differenziato:
-- body vuoto o 429 → retry con backoff esponenziale
-- JSON invalido o Content-Type inatteso → fallimento immediato (no retry)
+GDELT restituisce occasionalmente body vuoti o HTML (rate limit transitorio):
+retry su 429/body vuoto, fallimento immediato su Content-Type inatteso o JSON invalido.
 """
 
 import logging
@@ -34,16 +28,7 @@ _MIN_TOKEN_LEN  = 3     # token GDELT devono avere almeno questo numero di carat
 
 
 def _compute_backoff(attempt: int) -> float:
-    """
-    Backoff esponenziale con cap e jitter.
-
-    Formula: min(_MAX_BACKOFF, _REQUEST_DELAY * 2**attempt) * uniform(0.75, 1.25)
-
-    - Il cap evita attese eccessive con _MAX_RETRIES elevati (es. 96s al 5°
-      tentativo senza cap).
-    - Il jitter ±25% desincronizza i retry di query parallele che vengono
-      rate-limited contemporaneamente, evitando il thundering-herd sul server.
-    """
+    """Backoff esponenziale con cap (_MAX_BACKOFF) e jitter ±25% (anti-thundering-herd)."""
     base = _REQUEST_DELAY * (2 ** attempt)
     capped = min(base, _MAX_BACKOFF)
     return capped * random.uniform(*_JITTER_RANGE)
@@ -73,12 +58,6 @@ class GdeltCollector(BaseCollector):
     source_id = "gdelt"
 
     def collect(self, target: str, query: str, max_results: int = 75, **kwargs: object) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (max 250).
-        """
         sanitized_query = _sanitize_gdelt_query(query)
 
         params = {
@@ -114,23 +93,9 @@ class GdeltCollector(BaseCollector):
 
     def _request_with_retry(self, params: dict, query: str) -> dict | None:
         """
-        Esegue la richiesta HTTP a GDELT con retry differenziato per tipo di errore.
-
-        Backoff: esponenziale con cap (_MAX_BACKOFF) e jitter ±25% (vedi
-        `_compute_backoff`). Applicato a tutte le condizioni retry-able.
-        All'ultimo tentativo il sleep viene SALTATO (non avrebbe più effetto:
-        il loop termina subito dopo) e si restituisce None immediatamente.
-
-        Logica di retry:
-        - HTTP 429 (rate limit):      retry con backoff
-        - Body vuoto (transitorio):   retry con backoff
-        - HTTP 5xx:                   retry con backoff fino a _MAX_RETRIES
-        - Errori di rete (timeout):   retry con backoff fino a _MAX_RETRIES
-        - Content-Type inatteso:      fallimento immediato (no retry)
-        - JSONDecodeError:            fallimento immediato (no retry)
-
-        Il body viene ispezionato PRIMA di chiamare .json() per produrre
-        messaggi di errore diagnostici anziché un generico ValueError.
+        Retry differenziato: backoff su 429/body vuoto/5xx/timeout;
+        fallimento immediato su Content-Type inatteso o JSONDecodeError.
+        All'ultimo tentativo salta il sleep (il loop termina comunque).
         """
         time.sleep(_REQUEST_DELAY)
 
@@ -138,9 +103,6 @@ class GdeltCollector(BaseCollector):
             try:
                 response = requests.get(BASE_URL, params=params, timeout=15)
 
-                # --- Rate limit: retry con backoff esponenziale + jitter ---
-                # All'ultimo tentativo NON dormiamo: non ci sarebbe un'altra
-                # iterazione a cui ridare il controllo, quindi rinunciamo subito.
                 if response.status_code == 429:
                     if attempt == _MAX_RETRIES:
                         log.warning(
@@ -159,8 +121,6 @@ class GdeltCollector(BaseCollector):
 
                 response.raise_for_status()
 
-                # --- Body vuoto: possibile condizione transitoria ---
-                # Stessa logica del 429: all'ultimo tentativo non dormiamo.
                 if not response.content:
                     if attempt == _MAX_RETRIES:
                         log.warning(
@@ -178,7 +138,6 @@ class GdeltCollector(BaseCollector):
                     time.sleep(wait)
                     continue
 
-                # --- Content-Type inatteso: HTML o pagina di errore ---
                 # GDELT può restituire "application/json" o "text/javascript".
                 content_type = response.headers.get("Content-Type", "")
                 if "json" not in content_type and "javascript" not in content_type:
@@ -189,7 +148,7 @@ class GdeltCollector(BaseCollector):
                         self.source_id, content_type,
                         response.text[:_BODY_PREVIEW], query,
                     )
-                    return None  # No retry: non è un problema transitorio
+                    return None
 
                 return response.json()
 
@@ -200,14 +159,13 @@ class GdeltCollector(BaseCollector):
                 time.sleep(_compute_backoff(attempt))
 
             except requests.RequestException as e:
-                # Timeout, connection error, ecc. — potenzialmente transitori
                 self._log_error(query, e)
                 if attempt == _MAX_RETRIES:
                     return None
                 time.sleep(_compute_backoff(attempt))
 
             except ValueError as e:
-                # JSONDecodeError: body non è JSON valido — no retry.
+                # JSONDecodeError: no retry.
                 log.error(
                     "[%s] JSON non valido nella risposta GDELT. "
                     "Content-Type: '%s'. Anteprima body: %r. Errore: %s. Query: '%s'",

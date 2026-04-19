@@ -1,20 +1,4 @@
-"""
-normalizers/wikitalk.py
-
-Normalizer per Wikipedia Talk Pages (pagine di discussione).
-
-Payload raw atteso (per sezione):
-    page_title:     str (titolo dell'articolo, es. "Elon Musk")
-    section_title:  str (titolo della sezione di discussione)
-    section_index:  str (indice della sezione)
-    section_level:  int (livello header: 2, 3, ecc.)
-    wikitext:       str (testo della sezione, già pulito dal collector)
-    url:            str (permalink alla sezione, con anchor #)
-    language:       str (codice lingua, es. "en")
-
-Il titolo del Record è composto da: "[Talk] {page_title}: {section_title}"
-per chiarire che si tratta di una discussione, non di contenuto enciclopedico.
-"""
+"""normalizers/wikitalk.py — Normalizer per Wikipedia Talk Pages (source_id: "wikitalk")."""
 
 from __future__ import annotations
 
@@ -42,11 +26,11 @@ def _normalize(raw: RawRecord) -> Record:
         source=raw.source,
         title=title,
         text=wikitext,
-        date=None,  # le talk page non hanno una data di pubblicazione univoca
+        date=None,
         url=url,
         query=raw.query,
         target=raw.target,
-        author=None,  # discussioni multi-autore, nessun autore singolo
+        author=None,
         language=language,
         domain=f"{language}.wikipedia.org",
         retrieved_at=raw.retrieved_at,

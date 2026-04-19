@@ -1,15 +1,4 @@
-"""
-collectors/wikipedia_collector.py
-
-Collector per Wikipedia API.
-Gratuito, senza API key.
-
-Strategia:
-1. opensearch per trovare il titolo della pagina più rilevante per il target.
-2. Scarica la pagina con wikipediaapi.
-3. Cache per titolo: se query diverse portano alla stessa pagina,
-   la pagina viene scaricata una sola volta per sessione.
-"""
+"""collectors/wikipedia_collector.py — Wikipedia API (gratuita, senza key)."""
 
 import requests
 import wikipediaapi
@@ -24,20 +13,13 @@ class WikipediaCollector(BaseCollector):
     source_id = "wikipedia"
 
     def __init__(self) -> None:
-        # Cache per titoli già scaricati in questa istanza
-        self._fetched: set[str] = set()
+        self._fetched: set[str] = set()  # evita di scaricare la stessa pagina più volte
 
     def collect(self, target: str, query: str, max_results: int = 1, **kwargs: object) -> list[RawRecord]:
         """
-        max_results è ignorato: Wikipedia restituisce sempre 1 pagina per target.
-        kwargs supporta: lang (str, default "it") — lingua preferita con fallback a "en".
-
-        Nota sul parametro `query`:
-            Wikipedia opera su entità enciclopediche, non su query tematiche.
-            La ricerca viene effettuata usando `target` (es. "Elon Musk"),
-            non `query` (es. "Elon Musk Tesla controversie"). Il parametro
-            `query` è ricevuto per rispettare l'interfaccia BaseCollector
-            ed è usato solo per i log (tracciabilità dei RawRecord).
+        max_results ignorato: restituisce sempre 1 pagina per target.
+        kwargs: lang (str, default "it") con fallback a "en".
+        La ricerca usa `target`, non `query` (Wikipedia è entity-based).
         """
         lang: str = str(kwargs.get("lang", "it"))
 
@@ -82,12 +64,7 @@ class WikipediaCollector(BaseCollector):
     # ------------------------------------------------------------------
 
     def _opensearch(self, target: str, lang: str) -> str | None:
-        """
-        Restituisce il titolo della pagina Wikipedia più rilevante per il target.
-
-        Il parametro si chiama `target` (non `query`) per chiarire che la
-        ricerca è sull'entità principale, non su un tema libero.
-        """
+        """Restituisce il titolo della pagina Wikipedia più rilevante."""
         params = {
             "action":    "opensearch",
             "search":    target,

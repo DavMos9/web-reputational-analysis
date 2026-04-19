@@ -1,13 +1,4 @@
-"""
-pipeline/normalizer.py
-
-Shim di compatibilità: re-esporta normalize() e normalize_all()
-dal package normalizers/.
-
-La logica source-specific è in normalizers/<source>.py.
-Per aggiungere una sorgente → vedere normalizers/__init__.py.
-NON modificare questo file.
-"""
+"""pipeline/normalizer.py — Shim: re-esporta normalize() da normalizers/. NON modificare."""
 
 from normalizers import normalize, normalize_all  # noqa: F401
 

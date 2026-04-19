@@ -19,12 +19,6 @@ class NytCollector(BaseCollector):
     source_id = "nyt"
 
     def collect(self, target: str, query: str, max_results: int = 10, **kwargs: object) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di risultati (10 per pagina API).
-        """
         if not NYT_API_KEY:
             self._log_skip("NYT_API_KEY non configurata")
             return []

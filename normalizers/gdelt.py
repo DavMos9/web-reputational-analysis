@@ -1,12 +1,4 @@
-"""
-normalizers/gdelt.py
-
-Normalizer per GDELT DOC 2.0 (/api/v2/doc/doc).
-
-Payload raw atteso:
-    title, url, seendate, language, sourcecountry, domain
-Nota: GDELT non fornisce snippet/testo — text rimane vuoto.
-"""
+"""normalizers/gdelt.py — Normalizer per GDELT DOC 2.0 (source_id: "gdelt"). Nessun body text."""
 
 from __future__ import annotations
 
@@ -21,8 +13,8 @@ def _normalize(raw: RawRecord) -> Record:
     return Record(
         source=raw.source,
         title=first_non_empty(p.get("title")),
-        text="",  # GDELT non fornisce body
-        date=to_date(p.get("seendate")),  # formato: "20260408T120000Z"
+        text="",
+        date=to_date(p.get("seendate")),
         url=url,
         query=raw.query,
         target=raw.target,

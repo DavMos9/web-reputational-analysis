@@ -1,15 +1,4 @@
-"""
-collectors/base.py
-
-Interfaccia comune per tutti i collector della pipeline.
-
-Ogni collector concreto deve:
-- ereditare da BaseCollector
-- implementare il metodo `collect()`
-- restituire list[RawRecord] con il payload grezzo dell'API
-- NON fare trasformazioni sui dati (nessuna normalizzazione di date, URL, ecc.)
-- gestire errori API con logging, senza propagare eccezioni non gestite
-"""
+"""collectors/base.py — Interfaccia comune per tutti i collector."""
 
 from __future__ import annotations
 
@@ -24,26 +13,14 @@ log = logging.getLogger(__name__)
 
 
 class BaseCollector(ABC):
-    """
-    Classe base per tutti i collector.
-
-    Un collector ha una sola responsabilità: chiamare la sorgente dati
-    e restituire i payload grezzi come List[RawRecord].
-    Non normalizza, non pulisce, non salva.
-
-    Attributi di classe da sovrascrivere:
-        source_id   Identificatore unico della sorgente (es. "news", "gdelt").
-                    Deve corrispondere alle chiavi usate dal normalizer.
-    """
+    """Classe base per tutti i collector. Chiama la sorgente e restituisce RawRecord."""
 
     source_id: str = ""  # override obbligatorio nelle sottoclassi
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        # Le classi astratte intermedie (es. una futura RSSBaseCollector che
-        # aggiunge utility comuni ma non implementa collect()) non hanno ancora
-        # un source_id concreto e non devono essere penalizzate dal check.
-        # Il controllo viene applicato solo alle sottoclassi concrete (non astratte).
+        # Controlla solo le sottoclassi concrete: le astratte intermedie
+        # non hanno ancora un source_id definito.
         if not inspect.isabstract(cls) and not getattr(cls, "source_id", ""):
             raise TypeError(
                 f"{cls.__name__} deve definire l'attributo di classe 'source_id'"
@@ -51,27 +28,9 @@ class BaseCollector(ABC):
 
     @abstractmethod
     def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
-        """
-        Raccoglie dati dalla sorgente per il target e la query indicati.
-
-        Args:
-            target:      entità oggetto dell'analisi (es. "Elon Musk").
-            query:       stringa di ricerca (es. "Elon Musk Tesla").
-            max_results: numero massimo di risultati da raccogliere.
-                         Ogni collector applica internamente il proprio limite di API.
-            **kwargs:    parametri aggiuntivi specifici della sorgente (es. lang).
-
-        Returns:
-            Lista di RawRecord con il payload grezzo dell'API.
-            Lista vuota in caso di errore o nessun risultato.
-        """
-
-    # ------------------------------------------------------------------
-    # Utility condivise
-    # ------------------------------------------------------------------
+        """Raccoglie dati dalla sorgente. Restituisce lista vuota su errore."""
 
     def _now_iso(self) -> str:
-        """Restituisce il timestamp corrente in formato ISO 8601 UTC."""
         return datetime.now(timezone.utc).isoformat()
 
     def _make_raw(
@@ -80,17 +39,7 @@ class BaseCollector(ABC):
         query: str,
         payload: dict,
     ) -> RawRecord:
-        """
-        Factory per costruire un RawRecord in modo uniforme.
-
-        Args:
-            target:  entità analizzata.
-            query:   query usata per la raccolta.
-            payload: dizionario con la risposta grezza dell'API.
-
-        Returns:
-            RawRecord istanziato con retrieved_at impostato ora.
-        """
+        """Factory per costruire un RawRecord con retrieved_at impostato ora."""
         return RawRecord(
             source=self.source_id,
             query=query,

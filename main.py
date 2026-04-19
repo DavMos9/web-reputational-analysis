@@ -20,34 +20,20 @@ from pipeline.date_filter import parse_since
 from storage import RawStore
 from utils import now_timestamp, configure_logging
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
 configure_logging()
 
-# ---------------------------------------------------------------------------
-# Costanti
-# ---------------------------------------------------------------------------
 BASE_DIR  = Path(__file__).parent
-REGISTRY  = build_registry()           # lazy: importa i collector solo qui
+REGISTRY  = build_registry()
 ALL_SOURCES = list(REGISTRY.keys())
 
-# Fonti opt-in: non incluse nel set di default, ma richiamabili esplicitamente
-# via --sources. Usate per fonti strutturalmente inadatte alla maggior parte
-# dei target ma utili in casi specifici.
-#   - stackexchange: full-text match sul body delle domande, quindi nomi propri
-#     risultano spesso come stringhe di test in esempi di codice (rumore).
-#     Ha senso solo per target tech (librerie, framework, prodotti software).
-#   - hackernews: community prevalentemente anglofona e tech-savvy. Utile per
-#     target aziendali o figure tech; rumorosa per personaggi pubblici non-tech.
+# Opt-in: escluse dal default perché producono molto rumore per target non-tech.
+# stackexchange: nomi propri matchano spesso in esempi di codice.
+# hackernews: comunità anglofona tech-savvy, poco utile per target non-tech.
 OPT_IN_SOURCES = frozenset({"stackexchange", "hackernews"})
 
 DEFAULT_SOURCES = [s for s in ALL_SOURCES if s not in OPT_IN_SOURCES]
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Web Reputational Analysis — pipeline di raccolta dati da fonti web"
@@ -78,31 +64,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--news-language", default="en", metavar="LANG",
-        help=(
-            "Codice lingua ISO 639-1 per NewsAPI (default: 'en'). "
-            "Esempi: 'it', 'fr', 'de'. Attenzione: NewsAPI supporta un "
-            "sottoinsieme limitato di lingue nel piano gratuito."
-        ),
+        help="Codice lingua ISO 639-1 per NewsAPI (default: 'en').",
     )
     parser.add_argument(
         "--since", type=parse_since, default=None, metavar="YYYY-MM-DD",
         help=(
-            "Scarta i record con data anteriore. Formato 'YYYY-MM-DD'. "
-            "I record senza data vengono mantenuti. "
-            "Utile per analisi focalizzate su finestre temporali recenti: "
-            "migliora anche la significatività del campo 'trend' nel summary."
+            "Scarta i record con data anteriore. Record senza data vengono mantenuti."
         ),
     )
     parser.add_argument(
         "--dry-run", action="store_true",
-        help=(
-            "Esegue la pipeline con max_results=1 per ogni fonte/query. "
-            "Verifica che le API rispondano e l'intera pipeline funzioni "
-            "senza consumare quota. Non disattiva la scrittura su disco."
-        ),
+        help="Forza max_results=1 per fonte/query. Verifica le API senza consumare quota.",
     )
     def _positive_int(value: str) -> int:
-        """Valida che il valore sia un intero >= 1 (per --keep-raw-days)."""
+        """Valida che il valore sia un intero >= 1."""
         try:
             n = int(value)
         except ValueError:
@@ -115,18 +90,11 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--keep-raw-days", type=_positive_int, default=None, metavar="N",
-        help=(
-            "Elimina i file raw più vecchi di N giorni dopo la pipeline. "
-            "Deve essere >= 1. Default: nessuna pulizia. "
-            "Utile per gestire lo spazio in data/raw/."
-        ),
+        help="Elimina i file raw più vecchi di N giorni dopo la pipeline.",
     )
     return parser.parse_args()
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
     ts   = now_timestamp()

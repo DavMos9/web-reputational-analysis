@@ -1,28 +1,7 @@
-"""
-normalizers/brave.py
+"""normalizers/brave.py — Normalizer per Brave Search API (source_id: "brave").
 
-Normalizer per Brave Search API (web search).
-
-Payload raw atteso (subset rilevante):
-    title          (str):  titolo del risultato
-    url            (str):  URL canonico
-    description    (str):  snippet principale
-    extra_snippets (list): snippet aggiuntivi, opzionali — concatenati al text
-                           quando la description è troppo breve
-    page_age       (str):  data ISO 8601 di pubblicazione (opzionale)
-    age            (str):  data relativa "3 days ago" — ignorata, non riproducibile
-    language       (str):  codice lingua ISO 639-1, quando rilevato da Brave
-    meta_url       (dict): contiene `hostname` per il dominio
-
-Note:
-    - `date` può essere None: Brave non sempre restituisce `page_age`.
-      In quel caso il record resta valido ma contribuisce meno al recency_score
-      a valle. La data relativa `age` viene ignorata deliberatamente: parsarla
-      richiederebbe un'ora di riferimento e introdurrebbe approssimazioni
-      inaccettabili in una pipeline di analisi riproducibile.
-    - `text` viene arricchito con `extra_snippets` quando presenti e la
-      description è corta: aumenta la probabilità di superare MIN_TEXT_LENGTH
-      nel cleaner senza alterare la semantica del risultato.
+age (data relativa "3 days ago") ignorata: non riproducibile senza ora di riferimento.
+extra_snippets concatenati alla description quando quest'ultima è corta.
 """
 
 from __future__ import annotations
@@ -33,22 +12,11 @@ from models import RawRecord, Record
 from normalizers.registry import register
 from normalizers.utils import to_date, to_url, to_domain, first_non_empty, strip_html
 
-# Soglia sotto la quale proviamo ad arricchire il text con gli extra_snippets.
-# Coerente con MIN_TEXT_LENGTH di config.py (30 caratteri) con margine.
-_MIN_TEXT_FOR_SNIPPET_MERGE = 80
+_MIN_TEXT_FOR_SNIPPET_MERGE = 80  # margine sopra MIN_TEXT_LENGTH del cleaner
 
 
 def _compose_text(description: str, extra_snippets: Iterable[str] | None) -> str:
-    """
-    Costruisce il campo text del record.
-
-    Brave restituisce gli snippet con markup di evidenziazione (<strong>...</strong>):
-    viene rimosso qui per evitare che finisca nel modello di sentiment o negli export.
-
-    Se la description (pulita) è sufficientemente lunga, la restituisce così com'è.
-    Altrimenti concatena description + extra_snippets (puliti), separati da spazi,
-    per aumentare la copertura informativa senza cambiare semantica.
-    """
+    """Rimuove markup Brave (<strong>) e concatena extra_snippets se description è corta."""
     desc = strip_html(description)
     if len(desc) >= _MIN_TEXT_FOR_SNIPPET_MERGE or not extra_snippets:
         return desc
@@ -80,8 +48,8 @@ def _normalize(raw: RawRecord) -> Record:
         url=url,
         query=raw.query,
         target=raw.target,
-        author=None,                # Brave non espone l'autore in modo strutturato
-        language=language,          # None se non rilevato; enricher completa dopo
+        author=None,
+        language=language,
         domain=hostname or to_domain(url),
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

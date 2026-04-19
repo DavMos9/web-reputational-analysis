@@ -1,23 +1,8 @@
 """
-normalizers/__init__.py
+normalizers/__init__.py — Auto-discovery dei normalizer source-specific.
 
-Entry point del package normalizers/.
-
-Scopre e importa automaticamente tutti i moduli source-specific tramite
-pkgutil, attivando le auto-registrazioni nel registry.
-
---- Come aggiungere una nuova sorgente ---
-1. Creare normalizers/<source>.py con la logica di estrazione
-2. Chiamare register("<source_id>", <fn>) in fondo al nuovo file
-Nessun altro file va modificato — il modulo viene scoperto automaticamente.
-
---- Come rimuovere una sorgente ---
-Eliminare il file normalizers/<source>.py.
-Il registry ignorerà automaticamente quella sorgente.
-
---- Moduli esclusi dall'auto-discovery ---
-- registry.py  : il dispatcher centrale (non è un normalizer)
-- utils.py     : helper condivisi (non è un normalizer)
+Per aggiungere una sorgente: creare normalizers/<source>.py e chiamare
+register("<source_id>", <fn>) in fondo al file. Nessun altro file va modificato.
 """
 
 from __future__ import annotations
@@ -27,14 +12,9 @@ import pkgutil
 
 from normalizers.registry import normalize, normalize_all, registered_sources, REGISTRY
 
-# Moduli interni del package da non importare come normalizer
 _EXCLUDED: frozenset[str] = frozenset({"registry", "utils"})
 
-# Auto-discovery: importa ogni modulo non escluso, triggering register().
-# La variabile _modname è intenzionalmente lasciata nel namespace del modulo
-# con il valore dell'ultimo modulo scoperto. Non viene esplicitamente rimossa
-# perché `del` solleverebbe NameError se pkgutil.iter_modules restituisse
-# un iteratore vuoto (directory senza normalizer source-specific).
+# _modname è lasciato nel namespace per evitare NameError su iteratore vuoto.
 for _importer, _modname, _ispkg in pkgutil.iter_modules(__path__):
     if _modname not in _EXCLUDED:
         importlib.import_module(f"normalizers.{_modname}")

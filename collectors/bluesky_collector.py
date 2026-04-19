@@ -1,21 +1,8 @@
 """
-collectors/bluesky_collector.py
+collectors/bluesky_collector.py — AT Protocol API (searchPosts).
 
-Collector per Bluesky Social tramite AT Protocol API.
-
-Autenticazione richiesta: l'endpoint searchPosts non è più accessibile
-in forma anonima. Richiede App Password (BLUESKY_HANDLE + BLUESKY_APP_PASSWORD).
-
-Come ottenere le credenziali:
-  1. Accedi a https://bsky.app/settings/app-passwords
-  2. Crea una App Password dedicata (non usare la password principale)
-  3. Imposta BLUESKY_HANDLE=tuo.handle.bsky.social e BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-
-Documentazione API:
-  - Login:  https://docs.bsky.app/docs/api/com-atproto-server-create-session
-  - Search: https://docs.bsky.app/docs/api/app-bsky-feed-search-posts
-
-Rate limit: 1500 richieste/5 minuti per IP + account.
+Richiede App Password: BLUESKY_HANDLE + BLUESKY_APP_PASSWORD.
+Rate limit: 1500 req/5 min per IP + account.
 """
 
 from __future__ import annotations
@@ -35,12 +22,8 @@ _BASE_URL = "https://bsky.social/xrpc"
 _SESSION_URL = f"{_BASE_URL}/com.atproto.server.createSession"
 _SEARCH_URL  = f"{_BASE_URL}/app.bsky.feed.searchPosts"
 
-# Limite max per singola richiesta (imposto dall'API)
 _MAX_LIMIT = 100
-
-# Timeout HTTP unico per tutte le chiamate Bluesky (login + search).
-# Valore conservativo (20s) perché l'endpoint searchPosts può essere lento sotto
-# carico: 10s causavano timeout sporadici su target con alto volume di post.
+# 20s: searchPosts può essere lento sotto carico (10s causavano timeout sporadici).
 _HTTP_TIMEOUT = 20.0
 
 
@@ -49,8 +32,7 @@ class BlueskyCollector(BaseCollector):
 
     def __init__(self) -> None:
         self._access_jwt: str | None = None
-        # Lock per proteggere _access_jwt in contesto parallelo (ThreadPoolExecutor):
-        # più thread possono chiamare collect() sulla stessa istanza contemporaneamente.
+        # Lock per _access_jwt: più thread possono chiamare collect() in parallelo.
         self._jwt_lock: threading.Lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -65,13 +47,7 @@ class BlueskyCollector(BaseCollector):
         sort: str = "latest",
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo di post (max 100).
-            sort:        "latest" (cronologico, default) o "top" (per engagement).
-        """
+        """sort: "latest" (default) o "top"."""
         if not BLUESKY_HANDLE or not BLUESKY_APP_PASSWORD:
             self._log_skip("BLUESKY_HANDLE e BLUESKY_APP_PASSWORD non configurati")
             return []
@@ -92,8 +68,7 @@ class BlueskyCollector(BaseCollector):
                 _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT,
                 source_id=self.source_id,
             )
-            # Token scaduto → invalida il cache e rigenera una volta.
-            # Il reset sotto lock garantisce che altri thread non usino un token scaduto.
+            # 401: token scaduto — invalida cache e rigenera (reset sotto lock).
             if response.status_code == 401:
                 log.info("[bluesky] Token scaduto, rinnovo sessione.")
                 with self._jwt_lock:
@@ -120,25 +95,12 @@ class BlueskyCollector(BaseCollector):
         self._log_collected(query, len(records))
         return records
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _get_token(self) -> str | None:
-        """
-        Restituisce il JWT in cache o ne crea uno nuovo.
-
-        Thread-safe: usa un Lock per prevenire login concorrenti se più thread
-        chiamano collect() sulla stessa istanza (ThreadPoolExecutor con più query).
-        Double-checked locking: fast path senza lock se il token è già disponibile.
-        """
-        # Fast path: token già disponibile, nessun lock richiesto.
+        """Restituisce il JWT in cache o crea una nuova sessione (double-checked locking)."""
         if self._access_jwt:
             return self._access_jwt
 
         with self._jwt_lock:
-            # Secondo check dentro il lock: un altro thread potrebbe aver già
-            # completato il login mentre aspettavamo.
             if self._access_jwt:
                 return self._access_jwt
 

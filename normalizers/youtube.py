@@ -1,12 +1,4 @@
-"""
-normalizers/youtube.py
-
-Normalizer per YouTube Data API v3 (/search + /videos con statistics).
-
-Payload raw atteso:
-    snippet.title, snippet.description, snippet.channelTitle,
-    snippet.publishedAt, id.videoId, statistics.*
-"""
+"""normalizers/youtube.py — Normalizer per YouTube Data API v3 (source_id: "youtube")."""
 
 from __future__ import annotations
 

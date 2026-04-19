@@ -1,15 +1,4 @@
-"""
-normalizers/bluesky.py
-
-Normalizer per AT Protocol Public API (/app.bsky.feed.searchPosts).
-
-Payload raw atteso:
-    record.text, record.createdAt, author.handle, author.displayName,
-    uri (AT URI), likeCount, replyCount, repostCount
-
-URL: permalink web https://bsky.app/profile/<handle>/post/<rkey>
-Nota: i post Bluesky non hanno titolo — title rimane vuoto.
-"""
+"""normalizers/bluesky.py — Normalizer per AT Protocol /app.bsky.feed.searchPosts (source_id: "bluesky")."""
 
 from __future__ import annotations
 
@@ -23,7 +12,7 @@ def _normalize(raw: RawRecord) -> Record:
     record_data = p.get("record", {})
     author = p.get("author", {})
 
-    # Ricava la rkey dall'ultimo segmento dell'AT URI (at://did:.../post/<rkey>)
+    # rkey = ultimo segmento dell'AT URI (at://did:.../post/<rkey>)
     uri = p.get("uri", "")
     handle = author.get("handle", "")
     rkey = uri.rsplit("/", 1)[-1] if uri else ""
@@ -35,14 +24,14 @@ def _normalize(raw: RawRecord) -> Record:
 
     return Record(
         source=raw.source,
-        title="",  # i post Bluesky non hanno titolo
+        title="",
         text=first_non_empty(record_data.get("text")),
         date=to_date(record_data.get("createdAt") or p.get("indexedAt")),
         url=url,
         query=raw.query,
         target=raw.target,
         author=first_non_empty(author.get("displayName"), author.get("handle")),
-        language=None,  # AT Protocol non espone lingua nel payload search; rilevata dall'enricher
+        language=None,
         domain="bsky.app",
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(p.get("likeCount")),

@@ -1,15 +1,4 @@
-"""
-normalizers/guardian.py
-
-Normalizer per The Guardian Open Platform.
-
-Payload raw atteso:
-    fields.headline, fields.trailText, fields.bodyText,
-    fields.byline, fields.shortUrl, webUrl, webPublicationDate
-
-Nota: The Guardian API non espone un campo lingua nel payload standard.
-      La language detection è responsabilità dell'enricher.
-"""
+"""normalizers/guardian.py — Normalizer per The Guardian Open Platform (source_id: "guardian")."""
 
 from __future__ import annotations
 
@@ -31,7 +20,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(fields.get("byline")),
-        language=None,  # Non fornito dall'API; rilevato dall'enricher
+        language=None,
         domain=to_domain(url) or "theguardian.com",
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

@@ -1,41 +1,11 @@
 """
-collectors/retry.py
+collectors/retry.py — GET HTTP con retry e backoff esponenziale + jitter.
 
-Utility HTTP con retry e backoff esponenziale con jitter.
-
-Fornisce http_get_with_retry() come sostituto drop-in di requests.get()
-per i collector che vogliono retry automatico senza implementare la logica
-di backoff in ogni file.
-
-Politica di retry:
-    - HTTP 429 (Rate Limit):           attende base_delay + U(0, jitter_max) secondi
-    - HTTP 5xx (Server Error):          attende base_delay * (2 ** tentativo) secondi
-    - requests.Timeout / ConnectTimeout: attende base_delay secondi (1 retry)
-    - requests.ConnectionError:         attende base_delay secondi (1 retry)
-    - Altri errori di rete:             ri-sollevati immediatamente (no retry)
-
-Il retry su errori di rete (Timeout, ConnectionError) usa lo stesso numero
-massimo di tentativi degli errori HTTP (max_retries). Per pipeline batch
-che girano una sola volta, un timeout passeggero vale la pena di essere
-ritentato anziché scartare l'intera sorgente.
-
-Uso:
-    from collectors.retry import http_get_with_retry
-
-    response = http_get_with_retry(
-        url,
-        params=params,
-        headers=headers,
-        timeout=10,
-        source_id=self.source_id,  # per il logging
-    )
-    response.raise_for_status()
-
-La funzione mantiene la stessa firma di requests.get() per i parametri
-principali (url, params, headers, timeout) ed è un drop-in replacement.
-Solleva requests.RequestException sugli errori di rete non recuperabili,
-e restituisce la Response dell'ultimo tentativo anche se è un 4xx/5xx
-(il caller può ancora chiamare raise_for_status()).
+Politica:
+    - 429: attende base_delay + U(0, jitter_max), poi riprova.
+    - 5xx: backoff esponenziale base_delay * 2^i.
+    - Timeout / ConnectionError: stesso delay base (errori transitori).
+    - Altri errori: ri-sollevati immediatamente.
 """
 
 from __future__ import annotations
@@ -48,10 +18,9 @@ import requests
 
 log = logging.getLogger(__name__)
 
-# Valori default allineati alla logica esistente in reddit_collector.py.
-_DEFAULT_BASE_DELAY  = 30.0   # secondi prima del primo retry
-_DEFAULT_JITTER_MAX  = 10.0   # finestra jitter uniforme
-_DEFAULT_MAX_RETRIES = 1      # un solo retry per default (come reddit)
+_DEFAULT_BASE_DELAY  = 30.0
+_DEFAULT_JITTER_MAX  = 10.0
+_DEFAULT_MAX_RETRIES = 1
 
 
 def http_get_with_retry(
@@ -65,28 +34,7 @@ def http_get_with_retry(
     jitter_max: float = _DEFAULT_JITTER_MAX,
     source_id: str = "",
 ) -> requests.Response:
-    """
-    Esegue una GET HTTP con retry su 429 e 5xx.
-
-    Args:
-        url:         URL da richiedere.
-        params:      Query parameters (come requests.get).
-        headers:     Headers HTTP (come requests.get).
-        timeout:     Timeout in secondi (come requests.get).
-        max_retries: Numero massimo di tentativi aggiuntivi (default 1).
-        base_delay:  Tempo base di attesa in secondi prima del retry.
-                     Per 429 viene aggiunto jitter random; per 5xx viene
-                     applicato backoff esponenziale (base_delay * 2^i).
-        jitter_max:  Ampiezza massima del jitter uniforme aggiunto su 429.
-        source_id:   Identificatore della sorgente per il logging.
-
-    Returns:
-        requests.Response dell'ultimo tentativo eseguito.
-
-    Raises:
-        requests.RequestException: su errori di rete non recuperabili dopo
-            aver esaurito i tentativi (es. Timeout persistente, SSL error).
-    """
+    """GET con retry su 429/5xx/Timeout. Restituisce la Response dell'ultimo tentativo."""
     label = f"[{source_id}]" if source_id else ""
     attempt = 0
 
@@ -99,9 +47,6 @@ def http_get_with_retry(
                 timeout=timeout,
             )
         except (requests.Timeout, requests.ConnectionError) as exc:
-            # Errori di rete transitori: Timeout (server non risponde entro
-            # `timeout` secondi) e ConnectionError (reset TCP, DNS failure, ecc.).
-            # Vale la pena ritentare con lo stesso delay base degli errori HTTP.
             if attempt >= max_retries:
                 log.warning(
                     "%s Errore di rete (%s) — tentativi esauriti (%d/%d). "
@@ -158,5 +103,4 @@ def http_get_with_retry(
             attempt += 1
             continue
 
-        # Risposta valida (2xx, 3xx, 4xx non-429)
         return response

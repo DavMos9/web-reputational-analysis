@@ -1,21 +1,8 @@
 """
-collectors/wikitalk_collector.py
+collectors/wikitalk_collector.py — Wikipedia Talk Pages (MediaWiki Action API).
 
-Collector per le Talk Pages di Wikipedia (pagine di discussione).
-
-Le talk pages contengono opinioni, dibattiti e dispute editoriali
-riguardo le voci enciclopediche — dati preziosi per la reputation analysis
-perché riflettono controversie e percezioni degli editor.
-
-Strategia:
-1. Opensearch su namespace 0 (articolo) per trovare il titolo canonico.
-2. Richiesta a Talk:{titolo} via action=parse per ottenere sezioni e wikitext.
-3. Ogni sezione di discussione diventa un RawRecord separato.
-4. Sezioni troppo corte o puramente template vengono scartate.
-
-API: MediaWiki Action API (gratuita, nessuna key).
-Documentazione: https://www.mediawiki.org/wiki/API:Parsing_wikitext
-Rate limit: raccomandato < 200 req/sec con User-Agent valido.
+Ogni sezione di discussione diventa un RawRecord separato.
+Sezioni troppo corte o composte solo da template vengono scartate.
 """
 
 from __future__ import annotations
@@ -34,9 +21,7 @@ log = logging.getLogger(__name__)
 _USER_AGENT = "web-reputational-analysis/1.0"
 _API_URL = "https://{lang}.wikipedia.org/w/api.php"
 
-# Soglia minima di caratteri per considerare una sezione come discussione reale
-# (esclude sezioni vuote, redirect, o con solo template)
-_MIN_SECTION_LENGTH = 50
+_MIN_SECTION_LENGTH = 50  # esclude sezioni vuote o con solo template
 
 # Pattern per identificare contenuto prevalentemente template (non discussione)
 _TEMPLATE_HEAVY_RE = re.compile(r"^\s*\{\{[^}]+\}\}\s*$", re.DOTALL)
@@ -55,16 +40,7 @@ class WikiTalkCollector(BaseCollector):
         max_results: int = 20,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata (es. "Elon Musk").
-            query:       stringa di ricerca (usata per tracciabilità).
-            max_results: numero massimo di sezioni da raccogliere.
-            kwargs:      lang (str, default "en") — lingua Wikipedia.
-
-        Nota: la ricerca usa `target`, non `query`, perché le talk pages
-        sono associate a un'entità enciclopedica specifica.
-        """
+        """kwargs: lang (str, default "en"). La ricerca usa `target`, non `query`."""
         lang: str = str(kwargs.get("lang", "en"))
 
         page_title = self._opensearch(target, lang)
@@ -88,7 +64,6 @@ class WikiTalkCollector(BaseCollector):
         talk_url_base = f"https://{lang}.wikipedia.org/wiki/Talk:{page_title.replace(' ', '_')}"
 
         for section in sections[:max_results]:
-            # Costruisci anchor per la sezione
             anchor = section["anchor"]
             section_url = f"{talk_url_base}#{anchor}" if anchor else talk_url_base
 
@@ -136,16 +111,9 @@ class WikiTalkCollector(BaseCollector):
         page_title: str,
         lang: str,
     ) -> list[dict]:
-        """
-        Scarica la talk page e la suddivide in sezioni di discussione.
-
-        Returns:
-            Lista di dict con title, index, level, anchor, wikitext.
-            Solo sezioni con contenuto sufficiente (sopra _MIN_SECTION_LENGTH).
-        """
+        """Scarica la talk page e la suddivide in sezioni di discussione."""
         talk_page = f"Talk:{page_title}"
 
-        # Fetch sezioni + wikitext intero
         params = {
             "action": "parse",
             "page": talk_page,
@@ -181,7 +149,6 @@ class WikiTalkCollector(BaseCollector):
         if not sections_meta or not full_wikitext:
             return []
 
-        # Split del wikitext per sezioni usando gli header
         return self._split_sections(sections_meta, full_wikitext)
 
     def _split_sections(
@@ -189,13 +156,7 @@ class WikiTalkCollector(BaseCollector):
         sections_meta: list[dict],
         full_wikitext: str,
     ) -> list[dict]:
-        """
-        Suddivide il wikitext in sezioni basandosi sui metadati.
-
-        Filtra sezioni troppo corte o composte solo da template.
-        """
-        # Trova le posizioni degli header nel wikitext
-        # Header format: == Title == (level 2), === Title === (level 3), ecc.
+        """Suddivide il wikitext in sezioni. Filtra sezioni vuote o solo-template."""
         header_pattern = re.compile(r"^(={2,})\s*(.+?)\s*\1\s*$", re.MULTILINE)
         headers = list(header_pattern.finditer(full_wikitext))
 
@@ -240,10 +201,7 @@ class WikiTalkCollector(BaseCollector):
 
     @staticmethod
     def _strip_templates(text: str) -> str:
-        """
-        Rimuove tutti i template MediaWiki {{ ... }}, inclusi quelli
-        multi-linea e annidati, usando un contatore di parentesi graffe.
-        """
+        """Rimuove template MediaWiki {{ ... }} anche multi-linea e annidati."""
         result = []
         depth = 0
         i = 0
@@ -263,27 +221,15 @@ class WikiTalkCollector(BaseCollector):
 
     @classmethod
     def _clean_wikitext(cls, text: str) -> str:
-        """
-        Pulizia del wikitext per estrarre testo leggibile.
-
-        Rimuove template (anche annidati/multi-linea), link interni,
-        formattazione wiki e markup delle talk page.
-        """
+        """Rimuove template, link e markup wiki per estrarre testo leggibile."""
         if not text:
             return ""
-
-        # Rimuovi template di firma e timestamp (~~~~)
-        cleaned = re.sub(r"~{3,5}", "", text)
-        # Rimuovi tutti i template (inclusi multi-linea e annidati)
+        cleaned = re.sub(r"~{3,5}", "", text)          # firma e timestamp
         cleaned = cls._strip_templates(cleaned)
-        # Rimuovi link interni: [[target|display]] → display, [[target]] → target
         cleaned = re.sub(r"\[\[[^|\]]*\|([^\]]+)\]\]", r"\1", cleaned)
         cleaned = re.sub(r"\[\[([^\]]+)\]\]", r"\1", cleaned)
-        # Rimuovi link esterni: [url text] → text
         cleaned = re.sub(r"\[https?://\S+\s+([^\]]+)\]", r"\1", cleaned)
-        # Rimuovi bold/italic wiki markup
         cleaned = re.sub(r"'{2,3}", "", cleaned)
-        # Rimuovi indent/outdent (: all'inizio riga)
         cleaned = re.sub(r"^[:*#]+\s?", "", cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()

@@ -1,22 +1,4 @@
-"""
-normalizers/bbc.py
-
-Normalizer per BBC News RSS (source_id: "bbc").
-
-Payload raw atteso (prodotto da BbcCollector._parse_rss):
-    title       (str | None): titolo dell'articolo
-    link        (str | None): URL dell'articolo (permalink BBC)
-    pubDate     (str | None): data pubblicazione RFC 2822
-    description (str | None): abstract/snippet dell'articolo
-
-Note:
-    - `language` non è dichiarata nel feed RSS: viene rilevata dall'enricher
-      tramite langdetect. BBC pubblica principalmente in inglese.
-    - `domain` è estratto dall'URL (tipicamente "www.bbc.com" o "www.bbc.co.uk").
-    - `author` non è disponibile nei feed RSS BBC: rimane None.
-    - `description` è solitamente breve (1-2 frasi). Il titolo è il campo
-      portante per il sentiment analysis.
-"""
+"""normalizers/bbc.py — Normalizer per BBC News RSS (source_id: "bbc")."""
 
 from __future__ import annotations
 
@@ -39,8 +21,8 @@ def _normalize(raw: RawRecord) -> Record:
         url=url,
         query=raw.query,
         target=raw.target,
-        author=None,             # non disponibile nei feed RSS BBC
-        language=None,           # rilevata dall'enricher (BBC pubblica in più lingue)
+        author=None,
+        language=None,
         domain=to_domain(url),
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

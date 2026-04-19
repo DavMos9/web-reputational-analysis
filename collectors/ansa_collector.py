@@ -1,34 +1,4 @@
-"""
-collectors/ansa_collector.py
-
-Collector per ANSA (Agenzia Nazionale Stampa Associata) tramite feed RSS pubblici.
-
-Endpoint (nessuna API key richiesta):
-    https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml             — esteri
-    https://www.ansa.it/sito/notizie/politica/politica_rss.xml       — politica
-    https://www.ansa.it/sito/notizie/economia/economia_rss.xml       — economia
-    https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml         — cronaca
-    https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml         — cultura e spettacolo
-    https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml   — tecnologia
-    https://www.ansa.it/sito/notizie/sport/sport_rss.xml             — sport
-
-ANSA è la principale agenzia di stampa italiana. I feed RSS coprono le
-principali categorie editoriali e vengono aggiornati in tempo reale.
-I testi sono in italiano; il normalizer imposta `language="it"` direttamente.
-
-Strategia di raccolta:
-    - Scarica tutti i feed in parallelo.
-    - Filtra gli item il cui titolo o descrizione contiene almeno uno dei
-      termini della query (case-insensitive, split su spazi, minimo 2 caratteri).
-    - Deduplicazione per URL prima di restituire i record.
-    - Restituisce fino a max_results record ordinati per data (più recenti prima).
-
-Limiti:
-    - Copertura limitata agli item presenti nei feed al momento della raccolta
-      (tipicamente 20-40 item per feed, aggiornati frequentemente).
-    - Il filtro per query è client-side: query molto specifiche possono
-      restituire pochi o zero risultati.
-"""
+"""collectors/ansa_collector.py — ANSA (agenzia stampa italiana) tramite feed RSS. Nessuna API key."""
 
 from __future__ import annotations
 
@@ -45,17 +15,14 @@ from models import RawRecord
 
 log = logging.getLogger(__name__)
 
-# Feed RSS ANSA — copertura tematica ampia per reputation analysis generalista.
-# I feed cultura, tecnologia e sport estendono la copertura a celebrity, personaggi
-# dello spettacolo, sportivi e aziende tech — categorie assenti dai 4 feed originali.
 _RSS_FEEDS: list[str] = [
     "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
     "https://www.ansa.it/sito/notizie/politica/politica_rss.xml",
     "https://www.ansa.it/sito/notizie/economia/economia_rss.xml",
     "https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml",
-    "https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml",         # spettacolo, celebrity
-    "https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml",   # aziende tech, prodotti
-    "https://www.ansa.it/sito/notizie/sport/sport_rss.xml",             # sportivi, club
+    "https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml",
+    "https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml",
+    "https://www.ansa.it/sito/notizie/sport/sport_rss.xml",
 ]
 
 _HEADERS = {
@@ -73,16 +40,9 @@ class AnsaCollector(BaseCollector):
         max_results: int = 20,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca usata per filtrare gli item RSS.
-            max_results: numero massimo di record da restituire.
-        """
         items = self._fetch_all_feeds(timeout=15)
 
-        # Filtro rilevanza: almeno un termine della query in titolo o descrizione.
-        # Termini di 1 carattere ignorati (articoli, preposizioni brevi).
+        # Termini di 1 carattere ignorati (articoli, preposizioni brevi italiane).
         terms = [t.lower() for t in query.split() if len(t) > 1]
         if terms:
             items = [
@@ -90,7 +50,6 @@ class AnsaCollector(BaseCollector):
                 if self._is_relevant(item, terms)
             ]
 
-        # Deduplicazione per URL
         seen_urls: set[str] = set()
         unique: list[dict] = []
         for item in items:
@@ -99,7 +58,6 @@ class AnsaCollector(BaseCollector):
                 seen_urls.add(url)
                 unique.append(item)
 
-        # Ordina per data decrescente e tronca
         unique.sort(key=lambda x: x.get("pubDate") or "", reverse=True)
         unique = unique[:max_results]
 
@@ -107,10 +65,8 @@ class AnsaCollector(BaseCollector):
         self._log_collected(query, len(records))
         return records
 
-    # ------------------------------------------------------------------
-
     def _fetch_all_feeds(self, timeout: int = 15) -> list[dict]:
-        """Scarica tutti i feed RSS ANSA in parallelo."""
+        """Scarica tutti i feed RSS in parallelo."""
         all_items: list[dict] = []
 
         def fetch_one(url: str) -> list[dict]:
@@ -134,12 +90,7 @@ class AnsaCollector(BaseCollector):
 
     @staticmethod
     def _parse_rss(xml_text: str) -> list[dict]:
-        """
-        Parsa un feed RSS ANSA e restituisce lista di dizionari.
-
-        Il feed ANSA include namespace media per le immagini e Dublin Core
-        per i metadati. Vengono estratti solo i campi testuali utili.
-        """
+        """Parsa un feed RSS e restituisce lista di dizionari."""
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as e:
@@ -162,10 +113,7 @@ class AnsaCollector(BaseCollector):
 
     @staticmethod
     def _is_relevant(item: dict, terms: list[str]) -> bool:
-        """
-        Verifica se almeno un termine di ricerca appare nel titolo
-        o nella descrizione (case-insensitive).
-        """
+        """True se almeno un termine appare in titolo o descrizione."""
         haystack = " ".join(filter(None, [
             item.get("title") or "",
             item.get("description") or "",
@@ -174,6 +122,6 @@ class AnsaCollector(BaseCollector):
 
 
 def _text(element: ET.Element, tag: str) -> str | None:
-    """Restituisce il testo di un sotto-elemento, None se assente."""
+    """Testo di un sotto-elemento, None se assente."""
     child = element.find(tag)
     return child.text.strip() if child is not None and child.text else None

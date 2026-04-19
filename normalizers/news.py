@@ -1,11 +1,4 @@
-"""
-normalizers/news.py
-
-Normalizer per NewsAPI (/v2/everything).
-
-Payload raw atteso (singolo articolo):
-    title, description, content, url, author, publishedAt, source.name
-"""
+"""normalizers/news.py — Normalizer per NewsAPI /v2/everything (source_id: "news")."""
 
 from __future__ import annotations
 

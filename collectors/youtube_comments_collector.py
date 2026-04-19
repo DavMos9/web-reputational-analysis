@@ -1,18 +1,8 @@
 """
-collectors/youtube_comments_collector.py
+collectors/youtube_comments_collector.py — Commenti YouTube Data API v3.
 
-Collector per commenti YouTube tramite YouTube Data API v3.
-
-Strategia:
-  1. Cerca i video più rilevanti per la query (1 call = 100 unità quota).
-  2. Per ogni video, raccoglie i top-level comment tramite commentThreads.list
-     (1 unità per pagina di commenti).
-
-Quota stimata per chiamata: ~100 + max_videos unità.
-Piano gratuito: 10.000 unità/giorno.
-
-Nota: alcuni video hanno i commenti disabilitati dal creator.
-      In questo caso l'API restituisce 403 e il video viene saltato.
+Quota: ~100 + max_videos unità per chiamata. Piano gratuito: 10.000 unità/giorno.
+403 su video con commenti disabilitati: il video viene saltato.
 """
 
 import logging
@@ -41,14 +31,7 @@ class YouTubeCommentsCollector(BaseCollector):
         order: str = "relevance",
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:      entità analizzata.
-            query:       stringa di ricerca.
-            max_results: numero massimo totale di commenti da raccogliere.
-            max_videos:  numero di video da cui estrarre commenti (default 3).
-            order:       ordinamento commenti: "relevance" (default) o "time".
-        """
+        """order: "relevance" (default) o "time"."""
         if not YOUTUBE_API_KEY:
             self._log_skip("YOUTUBE_API_KEY non configurata")
             return []
@@ -58,7 +41,6 @@ class YouTubeCommentsCollector(BaseCollector):
             self._log_collected(query, 0)
             return []
 
-        # Distribuisce il budget di commenti uniformemente tra i video trovati
         comments_per_video = max(1, max_results // len(video_items))
         records: list[RawRecord] = []
 
@@ -74,12 +56,8 @@ class YouTubeCommentsCollector(BaseCollector):
         self._log_collected(query, len(records))
         return records
 
-    # ------------------------------------------------------------------
-    # Metodi privati
-    # ------------------------------------------------------------------
-
     def _search_videos(self, query: str, max_videos: int) -> list[dict]:
-        """Cerca i video più rilevanti per la query. Restituisce lista di item grezzi."""
+        """Cerca i video più rilevanti per la query."""
         params = {
             "part":       "snippet",
             "q":          query,
@@ -103,15 +81,7 @@ class YouTubeCommentsCollector(BaseCollector):
         max_per_video: int,
         order: str,
     ) -> list[dict]:
-        """
-        Recupera i top-level comment di un singolo video.
-
-        Arricchisce ogni record con video_id e video_title per consentire
-        al normalizer di ricostruire il contesto del commento.
-
-        Gestisce esplicitamente il 403 (commenti disabilitati): in quel caso
-        il video viene saltato senza propagare l'errore.
-        """
+        """Recupera i top-level comment di un video. 403 = commenti disabilitati."""
         params = {
             "part":       "snippet",
             "videoId":    video_id,

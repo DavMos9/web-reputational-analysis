@@ -1,15 +1,4 @@
-"""
-normalizers/nyt.py
-
-Normalizer per NYT Article Search API (/articlesearch.json).
-
-Payload raw atteso:
-    web_url, headline.main, abstract, lead_paragraph,
-    byline.original, pub_date, source
-
-Nota: NYT Article Search API non espone un campo lingua nel payload.
-      La language detection è responsabilità dell'enricher.
-"""
+"""normalizers/nyt.py — Normalizer per NYT Article Search API (source_id: "nyt")."""
 
 from __future__ import annotations
 
@@ -39,7 +28,7 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(author),
-        language=None,  # Non fornito dall'API; rilevato dall'enricher
+        language=None,
         domain=to_domain(url) or "nytimes.com",
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

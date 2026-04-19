@@ -1,18 +1,4 @@
-"""
-collectors/lemmy_collector.py
-
-Collector per Lemmy (alternativa open-source a Reddit) tramite API v3.
-
-Endpoint utilizzato: /api/v3/search
-- Ricerca full-text su Post e Commenti.
-- Nessuna autenticazione richiesta.
-- Restituisce titolo, body, autore, score, numero commenti, data.
-
-Istanze principali: lemmy.world, lemmy.ml, programming.dev, sh.itjust.works.
-Documentazione: https://join-lemmy.org/docs/contributors/04-api.html
-
-Rate limit: varia per istanza; lemmy.world applica ~60 req/minuto per IP.
-"""
+"""collectors/lemmy_collector.py — Lemmy API v3 (/api/v3/search). Nessuna auth richiesta."""
 
 from __future__ import annotations
 
@@ -28,10 +14,7 @@ from models import RawRecord
 
 log = logging.getLogger(__name__)
 
-# Limite massimo per singola richiesta (imposto dall'API)
 _MAX_LIMIT = 50
-
-# Pausa tra richieste a istanze diverse
 _INTER_INSTANCE_DELAY = 0.5
 
 _CONTENT_TYPES = ("Posts", "Comments")
@@ -50,17 +33,7 @@ class LemmyCollector(BaseCollector):
         content_types: tuple[str, ...] = _CONTENT_TYPES,
         **kwargs: object,
     ) -> list[RawRecord]:
-        """
-        Args:
-            target:        entità analizzata.
-            query:         stringa di ricerca.
-            max_results:   numero massimo di risultati per tipo per istanza (max 50).
-            instances:     tuple di istanze Lemmy da interrogare.
-                           Default da config.LEMMY_INSTANCES.
-            sort:          ordinamento — "TopAll" (default), "New", "Hot", "Old".
-            content_types: tipi di contenuto da cercare.
-                           Default: ("Posts", "Comments").
-        """
+        """sort: "TopAll"|"New"|"Hot"|"Old". instances: default da config.LEMMY_INSTANCES."""
         instances = instances or LEMMY_INSTANCES
         limit = min(max_results, _MAX_LIMIT)
 
@@ -107,7 +80,6 @@ class LemmyCollector(BaseCollector):
             self._log_error(query, e)
             return []
 
-        # L'API restituisce "posts" o "comments" a seconda del type_
         if content_type == "Posts":
             items = data.get("posts", [])
         elif content_type == "Comments":

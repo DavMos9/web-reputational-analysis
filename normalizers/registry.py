@@ -1,18 +1,4 @@
-"""
-normalizers/registry.py
-
-Registro centrale dei normalizer source-specific.
-
-Design:
-- Ogni normalizer si auto-registra chiamando register() al momento dell'import.
-- Il dispatcher normalize() è completamente ignaro delle sorgenti conosciute:
-  non contiene alcun if/elif né riferimento diretto ai moduli sorgente.
-- Aggiungere una sorgente: creare normalizers/<source>.py e chiamare register()
-  in fondo al file. Nessun altro file va modificato: l'auto-discovery in
-  normalizers/__init__.py importa automaticamente ogni nuovo modulo.
-  Questo modulo (registry.py) non va mai toccato.
-- Rimuovere una sorgente: eliminare il file normalizers/<source>.py.
-"""
+"""normalizers/registry.py — Dispatcher centrale. NON modificare."""
 
 from __future__ import annotations
 
@@ -27,18 +13,11 @@ log = logging.getLogger(__name__)
 
 NormalizerFn = Callable[[RawRecord], Record | None]
 
-# Registro interno mutabile: solo register() può scriverci.
-# Accesso esterno in sola lettura tramite REGISTRY (MappingProxyType).
 _REGISTRY: dict[str, NormalizerFn] = {}
-
-# View read-only esposta pubblicamente.
-# MappingProxyType riflette dinamicamente il dict sottostante:
-# le registrazioni successive a register() sono visibili, ma nessuno
-# può mutare REGISTRY direttamente (TypeError su tentativi di assegnazione).
+# MappingProxyType: view read-only che riflette dinamicamente _REGISTRY.
 REGISTRY: Mapping[str, NormalizerFn] = MappingProxyType(_REGISTRY)
 
-# Chiavi comuni per titolo/testo/url/data — usate dal fallback normalizer.
-# L'ordine riflette la priorità: il primo valore non vuoto viene usato.
+# Chiavi comuni per il fallback normalizer (ordine = priorità).
 _TITLE_KEYS  = ("title", "headline", "name", "subject", "webTitle")
 _TEXT_KEYS   = ("text", "body", "content", "description", "trailText", "selftext")
 _URL_KEYS    = ("url", "link", "webUrl", "ap_id", "uri", "shortUrl")
@@ -47,14 +26,7 @@ _DATE_KEYS   = ("date", "published", "published_at", "webPublicationDate",
 
 
 def _fallback_normalize(raw: RawRecord) -> Record | None:
-    """
-    Normalizer generico di fallback per sorgenti senza normalizer registrato.
-
-    Tenta di estrarre titolo, testo, URL e data cercando chiavi comuni nel
-    payload. Se nessun URL è recuperabile, restituisce None (record inutilizzabile).
-    Non è preciso come un normalizer specifico, ma evita di scartare silenziosamente
-    record che contengono informazioni utilizzabili.
-    """
+    """Fallback per sorgenti senza normalizer: tenta di estrarre campi da chiavi comuni."""
     p = raw.payload
     url = to_url(first_non_empty(*(str(p.get(k) or "") for k in _URL_KEYS)))
     if not url:
@@ -87,17 +59,7 @@ def _fallback_normalize(raw: RawRecord) -> Record | None:
 
 
 def register(source_name: str, fn: NormalizerFn) -> None:
-    """
-    Registra una funzione normalizer per una sorgente.
-
-    Chiamato tipicamente a livello di modulo in normalizers/<source>.py,
-    così la registrazione avviene automaticamente all'import del modulo.
-
-    Args:
-        source_name: identificatore della sorgente (deve corrispondere
-                     a RawRecord.source, es. "news", "gdelt").
-        fn:          funzione (RawRecord) → Record | None.
-    """
+    """Registra un normalizer per una sorgente. Chiamato a livello di modulo in normalizers/<source>.py."""
     if source_name in _REGISTRY:
         log.warning(
             "Normalizer per '%s' già registrato — sovrascrittura.",
@@ -113,22 +75,7 @@ def registered_sources() -> list[str]:
 
 
 def normalize(raw: RawRecord) -> Record | None:
-    """
-    Normalizza un RawRecord nel formato Record canonico.
-
-    Dispatcha al normalizer registrato per raw.source.
-    Gestisce internamente tutti gli errori: non propaga mai eccezioni.
-
-    Args:
-        raw: RawRecord prodotto da un collector.
-
-    Returns:
-        Record normalizzato, oppure None se:
-        - la sorgente non ha un normalizer registrato
-        - il normalizer solleva ValueError (campo obbligatorio mancante)
-        - l'URL risultante è vuoto (record non linkabile → inutilizzabile)
-        - qualsiasi errore imprevisto durante la normalizzazione
-    """
+    """Dispatcha al normalizer registrato. Non propaga eccezioni. None se record non normalizzabile."""
     fn = _REGISTRY.get(raw.source)
     if fn is None:
         log.warning(
@@ -141,7 +88,6 @@ def normalize(raw: RawRecord) -> Record | None:
     try:
         record = fn(raw)
     except ValueError as e:
-        # ValueError da Record.__post_init__: campo obbligatorio non valido
         log.warning(
             "[%s] Record scartato: %s (query='%s')",
             raw.source, e, raw.query,
@@ -157,7 +103,6 @@ def normalize(raw: RawRecord) -> Record | None:
     if record is None:
         return None
 
-    # Un record senza URL è inutilizzabile in analisi reputazionale
     if not record.url:
         log.warning(
             "[%s] Record scartato: URL mancante (query='%s', title='%s')",
@@ -171,15 +116,7 @@ def normalize(raw: RawRecord) -> Record | None:
 
 
 def normalize_all(raws: list[RawRecord]) -> list[Record]:
-    """
-    Normalizza una lista di RawRecord, scartando silenziosamente i None.
-
-    Args:
-        raws: lista di RawRecord prodotti dai collector.
-
-    Returns:
-        Lista di Record validi nello stesso ordine dell'input (esclusi i None).
-    """
+    """Normalizza una lista di RawRecord, scartando i None."""
     results: list[Record] = []
     for raw in raws:
         record = normalize(raw)

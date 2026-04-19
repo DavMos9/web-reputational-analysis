@@ -1,25 +1,4 @@
-"""
-normalizers/stackexchange.py
-
-Normalizer per Stack Exchange API v2.3 (/search/excerpts).
-
-Payload raw atteso (per item):
-    item_type:     "question" | "answer"
-    question_id:   int
-    answer_id:     int (solo per answer)
-    title:         str (titolo della domanda — presente anche per risposte)
-    excerpt:       str (snippet HTML con <span class="highlight">)
-    body:          str (opzionale, se il filter include body)
-    score:         int (voti netti: upvotes - downvotes)
-    tags:          list[str] (solo per questions)
-    creation_date: int (unix timestamp)
-    owner:         dict con display_name, link, user_id
-    _site:         str (iniettato dal collector: "stackoverflow", ecc.)
-
-URL costruito:
-    Question → https://{site}.com/questions/{question_id}
-    Answer   → https://{site}.com/a/{answer_id}
-"""
+"""normalizers/stackexchange.py — Normalizer per Stack Exchange API v2.3 (source_id: "stackexchange")."""
 
 from __future__ import annotations
 
@@ -64,11 +43,9 @@ def _normalize(raw: RawRecord) -> Record:
     title_raw = p.get("title", "")
     excerpt_raw = p.get("excerpt", "")
 
-    # Pulisci HTML da titolo ed excerpt
     title = strip_html(title_raw)
     excerpt = strip_html(excerpt_raw)
 
-    # Per le risposte, prefissa il titolo per chiarire il contesto
     if item_type == "answer" and title:
         title = f"[Answer] {title}"
 
@@ -84,10 +61,10 @@ def _normalize(raw: RawRecord) -> Record:
         query=raw.query,
         target=raw.target,
         author=first_non_empty(owner.get("display_name")),
-        language=None,  # Stack Exchange API non espone la lingua; rilevata dall'enricher
+        language=None,
         domain=f"{site}.com",
         retrieved_at=raw.retrieved_at,
-        likes_count=to_int(p.get("score")),  # score = upvotes - downvotes
+        likes_count=to_int(p.get("score")),
         raw_payload=p,
     )
 

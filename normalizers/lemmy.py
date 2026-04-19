@@ -1,25 +1,4 @@
-"""
-normalizers/lemmy.py
-
-Normalizer per Lemmy API v3 (/api/v3/search).
-
-Due tipi di payload:
-
-POST (type_ = "Posts"):
-    post:    { name, body, ap_id, published, community_id, ... }
-    creator: { name, actor_id, ... }
-    counts:  { score, comments, upvotes, downvotes, ... }
-
-COMMENT (type_ = "Comments"):
-    comment: { content, ap_id, published, ... }
-    creator: { name, actor_id, ... }
-    post:    { name, ap_id, ... }  (il post genitore)
-    counts:  { score, upvotes, downvotes, child_count, ... }
-
-Campi iniettati dal collector:
-    _instance:     str (es. "lemmy.world")
-    _content_type: str ("Posts" o "Comments")
-"""
+"""normalizers/lemmy.py — Normalizer per Lemmy API v3 (source_id: "lemmy"). Posts e Comments."""
 
 from __future__ import annotations
 
@@ -52,8 +31,7 @@ def _normalize_post(
 
     title = post.get("name", "")
     body = post.get("body", "")
-    # Se il post è un link senza body, usa il titolo come testo
-    text = body if body else title
+    text = body if body else title  # link post senza body: usa il titolo
 
     url = to_url(post.get("ap_id", ""))
 
@@ -66,7 +44,7 @@ def _normalize_post(
         query=raw.query,
         target=raw.target,
         author=first_non_empty(creator.get("name")),
-        language=None,  # Lemmy API non espone la lingua del contenuto
+        language=None,
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(counts.get("score")),
@@ -86,7 +64,6 @@ def _normalize_comment(
     comment = p.get("comment", {})
     parent_post = p.get("post", {})
 
-    # Titolo: dal post genitore, prefissato
     parent_title = parent_post.get("name", "")
     title = f"[Comment] {parent_title}" if parent_title else ""
 
@@ -102,7 +79,7 @@ def _normalize_comment(
         query=raw.query,
         target=raw.target,
         author=first_non_empty(creator.get("name")),
-        language=None,  # Lemmy API non espone la lingua del contenuto
+        language=None,
         domain=instance,
         retrieved_at=raw.retrieved_at,
         likes_count=to_int(counts.get("score")),

@@ -232,10 +232,10 @@ class TestDetectLanguage:
         assert len(results) == 1, f"Risultati non deterministici: {results}"
 
     def test_langdetect_unavailable_returns_none(self):
-        """Se langdetect non è importabile, detect_language restituisce None senza crash."""
-        with patch.dict("sys.modules", {"langdetect": None}):
+        """Se langdetect non è disponibile, detect_language restituisce None senza crash."""
+        with patch("pipeline.enricher._LANGDETECT_AVAILABLE", False):
             result = detect_language("This is a long enough English sentence for detection.")
-            assert result is None
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
