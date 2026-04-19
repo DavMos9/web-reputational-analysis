@@ -23,25 +23,9 @@ URL costruito:
 
 from __future__ import annotations
 
-import html
-import re
-
 from models import RawRecord, Record
 from normalizers.registry import register
-from normalizers.utils import to_date, to_url, first_non_empty, to_int
-
-
-# Rimuove tag HTML dall'excerpt (es. <span class="highlight">...</span>)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _strip_html(text: str) -> str:
-    """Rimuove tag HTML e decodifica entità HTML."""
-    if not text:
-        return ""
-    # Prima rimuovi i tag, poi decodifica le entità (&amp; → &, ecc.)
-    cleaned = _HTML_TAG_RE.sub("", text)
-    return html.unescape(cleaned).strip()
+from normalizers.utils import to_date, to_url, first_non_empty, to_int, strip_html
 
 
 def _unix_to_date(timestamp: int | None) -> str | None:
@@ -81,8 +65,8 @@ def _normalize(raw: RawRecord) -> Record:
     excerpt_raw = p.get("excerpt", "")
 
     # Pulisci HTML da titolo ed excerpt
-    title = _strip_html(title_raw)
-    excerpt = _strip_html(excerpt_raw)
+    title = strip_html(title_raw)
+    excerpt = strip_html(excerpt_raw)
 
     # Per le risposte, prefissa il titolo per chiarire il contesto
     if item_type == "answer" and title:

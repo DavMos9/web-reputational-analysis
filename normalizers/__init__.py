@@ -30,11 +30,13 @@ from normalizers.registry import normalize, normalize_all, registered_sources, R
 # Moduli interni del package da non importare come normalizer
 _EXCLUDED: frozenset[str] = frozenset({"registry", "utils"})
 
-# Auto-discovery: importa ogni modulo non escluso, triggering register()
+# Auto-discovery: importa ogni modulo non escluso, triggering register().
+# La variabile _modname è intenzionalmente lasciata nel namespace del modulo
+# con il valore dell'ultimo modulo scoperto. Non viene esplicitamente rimossa
+# perché `del` solleverebbe NameError se pkgutil.iter_modules restituisse
+# un iteratore vuoto (directory senza normalizer source-specific).
 for _importer, _modname, _ispkg in pkgutil.iter_modules(__path__):
     if _modname not in _EXCLUDED:
         importlib.import_module(f"normalizers.{_modname}")
-
-del _importer, _modname, _ispkg  # pulizia namespace
 
 __all__ = ["normalize", "normalize_all", "registered_sources", "REGISTRY"]

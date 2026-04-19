@@ -34,7 +34,10 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
+
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
+from config import APP_USER_AGENT
 from models import RawRecord
 
 log = logging.getLogger(__name__)
@@ -59,7 +62,7 @@ class GNewsItCollector(BaseCollector):
             query:       stringa di ricerca.
             max_results: numero di risultati desiderati (cap a 100).
                          Google News RSS non accetta un parametro di limite:
-                         restituisce tutti gli item disponibili (di solito 10–100).
+                         restituisce tutti gli item disponibili (di solito 10-100).
                          Il cap viene applicato in post-processing.
         """
         params = {
@@ -70,20 +73,13 @@ class GNewsItCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 _BASE_URL,
                 params=params,
                 timeout=15,
-                headers={"User-Agent": "web-reputational-analysis/0.4.0 (academic research)"},
+                headers={"User-Agent": APP_USER_AGENT},
+                source_id=self.source_id,
             )
-
-            if response.status_code == 429:
-                log.warning(
-                    "[GNewsItCollector] Rate limit raggiunto (HTTP 429). "
-                    "Riprova tra qualche istante."
-                )
-                return []
-
             response.raise_for_status()
         except requests.RequestException as e:
             self._log_error(query, e)
@@ -129,7 +125,7 @@ class GNewsItCollector(BaseCollector):
                     original,
                     allow_redirects=True,
                     timeout=timeout,
-                    headers={"User-Agent": "web-reputational-analysis/0.4.0 (academic research)"},
+                    headers={"User-Agent": APP_USER_AGENT},
                 )
                 resolved = resp.url
                 # Se Google ha interposto la consent page (es. target anglofoni

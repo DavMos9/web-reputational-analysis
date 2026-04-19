@@ -6,6 +6,7 @@ Test per pipeline/cleaner.py.
 Copertura:
 - clean(): strip su campi required
 - clean(): normalizzazione Unicode NFC
+- clean(): decodifica HTML entities (title, text, author)
 - clean(): campi optional — stringa vuota → None
 - clean(): campi optional già None restano None
 - clean(): Record già pulito non viene copiato inutilmente (stessa istanza)
@@ -69,6 +70,60 @@ class TestCleanRequired:
         r = _record(title=nfd_char)
         cleaned = clean(r)
         assert cleaned.title == nfc_char
+
+    def test_decodes_quot_entity_in_title(self):
+        r = _record(title='Carlo Conti: &quot;Grazie a tutti&quot; - Sanremo 2026')
+        cleaned = clean(r)
+        assert cleaned.title == 'Carlo Conti: "Grazie a tutti" - Sanremo 2026'
+
+    def test_decodes_amp_entity(self):
+        r = _record(title="Economia &amp; Finanza")
+        cleaned = clean(r)
+        assert cleaned.title == "Economia & Finanza"
+
+    def test_decodes_lt_gt_entities(self):
+        r = _record(text="Valore &lt;100&gt; confermato")
+        cleaned = clean(r)
+        assert cleaned.text == "Valore <100> confermato"
+
+    def test_decodes_apos_and_numeric_entity(self):
+        r = _record(title="L&apos;articolo di &#39;oggi&#39;")
+        cleaned = clean(r)
+        assert cleaned.title == "L'articolo di 'oggi'"
+
+    def test_decodes_numeric_unicode_entity(self):
+        # &#8220; → " (left double quotation mark)
+        r = _record(title="&#8220;Titolo tra virgolette&#8221;")
+        cleaned = clean(r)
+        assert cleaned.title == "\u201cTitolo tra virgolette\u201d"
+
+    def test_decodes_nbsp_entity_to_space(self):
+        # &nbsp; → \xa0 → spazio normale (whitespace orizzontale collassato)
+        r = _record(title="Titolo&nbsp;con&nbsp;nbsp")
+        cleaned = clean(r)
+        assert cleaned.title == "Titolo con nbsp"
+
+    def test_collapses_double_nbsp_separator(self):
+        # Pattern Google News: "Titolo articolo\xa0\xa0Nome Fonte"
+        r = _record(text="Paolo Ruffini: show\xa0\xa0Mediaset Infinity")
+        cleaned = clean(r)
+        assert cleaned.text == "Paolo Ruffini: show Mediaset Infinity"
+
+    def test_collapses_multiple_spaces(self):
+        r = _record(title="Titolo  con   spazi  multipli")
+        cleaned = clean(r)
+        assert cleaned.title == "Titolo con spazi multipli"
+
+    def test_preserves_newlines_in_text(self):
+        # \n è contenuto reale in commenti e post social — non va toccato
+        r = _record(text="Prima riga\nSeconda riga\nTerza riga")
+        cleaned = clean(r)
+        assert cleaned.text == "Prima riga\nSeconda riga\nTerza riga"
+
+    def test_decodes_html_entities_in_author(self):
+        r = _record(author="Redazione &amp; Staff")
+        cleaned = clean(r)
+        assert cleaned.author == "Redazione & Staff"
 
     def test_already_clean_record_returns_equivalent(self):
         """Un Record già pulito non deve avere campi diversi dopo clean()."""

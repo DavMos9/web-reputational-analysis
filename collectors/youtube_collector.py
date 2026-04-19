@@ -5,10 +5,16 @@ Collector per YouTube Data API v3.
 Piano gratuito: 10.000 unità/giorno (search = 100 unità, videos.list = 1 unità/video).
 """
 
+import logging
+
 import requests
+
+from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import YOUTUBE_API_KEY
 from models import RawRecord
-from collectors.base import BaseCollector
+
+log = logging.getLogger(__name__)
 
 BASE_URL = "https://www.googleapis.com/youtube/v3"
 
@@ -16,7 +22,7 @@ BASE_URL = "https://www.googleapis.com/youtube/v3"
 class YouTubeCollector(BaseCollector):
     source_id = "youtube"
 
-    def collect(self, target: str, query: str, max_results: int = 20) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
         """
         Args:
             target:      entità analizzata.
@@ -37,7 +43,7 @@ class YouTubeCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(f"{BASE_URL}/search", params=params, timeout=10)
+            response = http_get_with_retry(f"{BASE_URL}/search", params=params, timeout=10, source_id=self.source_id)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -87,7 +93,7 @@ class YouTubeCollector(BaseCollector):
             "key":  YOUTUBE_API_KEY,
         }
         try:
-            response = requests.get(f"{BASE_URL}/videos", params=params, timeout=10)
+            response = http_get_with_retry(f"{BASE_URL}/videos", params=params, timeout=10, source_id=self.source_id)
             response.raise_for_status()
             data = response.json()
             return {

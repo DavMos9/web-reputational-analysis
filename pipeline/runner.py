@@ -27,7 +27,7 @@ from pipeline.normalizer import normalize_all
 from pipeline.cleaner import clean_all, filter_quality
 from pipeline.date_filter import filter_by_date, parse_since
 from pipeline.deduplicator import deduplicate
-from pipeline.enricher import Enricher, enrich_all
+from pipeline.enricher import Enricher
 from pipeline.aggregator import aggregate, EntitySummary
 
 log = logging.getLogger(__name__)
@@ -65,7 +65,13 @@ class PipelineConfig:
         target:              entità da analizzare (es. "Elon Musk").
         queries:             lista di query di ricerca.
         sources:             lista di source_id da interrogare
-                             (es. ["news", "gdelt"]). Se vuota usa tutte le sorgenti.
+                             (es. ["news", "gdelt"]).
+                             ATTENZIONE: una lista VUOTA ([]) significa
+                             "usa TUTTE le sorgenti nel registry", NON
+                             "non usare nessuna sorgente". Questo è il
+                             comportamento di default quando il campo non
+                             viene specificato. Per restringere a un
+                             sottoinsieme, passare la lista esplicita.
         max_results:         numero massimo di risultati per collector per query.
         save_raw:            se True, invoca raw_store.save() dopo la raccolta.
         collector_kwargs:    kwargs aggiuntivi per collector specifici, indicizzati

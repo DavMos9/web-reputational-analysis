@@ -26,6 +26,7 @@ import re
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from models import RawRecord
 
 log = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class WikiTalkCollector(BaseCollector):
         target: str,
         query: str,
         max_results: int = 20,
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -115,11 +116,12 @@ class WikiTalkCollector(BaseCollector):
             "format": "json",
         }
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 _API_URL.format(lang=lang),
                 params=params,
                 headers={"User-Agent": _USER_AGENT},
                 timeout=10,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             data = response.json()
@@ -152,11 +154,12 @@ class WikiTalkCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 _API_URL.format(lang=lang),
                 params=params,
                 headers={"User-Agent": _USER_AGENT},
                 timeout=15,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             data = response.json()

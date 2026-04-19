@@ -13,9 +13,24 @@ Variabili d'ambiente: caricate da .env tramite python-dotenv.
 from __future__ import annotations
 
 import os
+from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PackageNotFoundError
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Versione applicazione — letta da pyproject.toml via importlib.metadata.
+# Usata negli User-Agent HTTP dei collector per identificarsi correttamente.
+# Fallback "dev" se il pacchetto non è installato (es. sviluppo senza pip install -e .).
+# ---------------------------------------------------------------------------
+try:
+    _APP_VERSION: str = _pkg_version("web-reputational-analysis")
+except _PackageNotFoundError:
+    _APP_VERSION = "dev"
+
+APP_USER_AGENT: str = (
+    f"web-reputational-analysis/{_APP_VERSION} (academic research pipeline)"
+)
 
 # ---------------------------------------------------------------------------
 # API Keys
@@ -245,23 +260,6 @@ VOLUME_HALFSAT: int = 100
 # Se |slope| < TREND_THRESHOLD → "stable".
 TREND_THRESHOLD: float = 0.005
 
-
-# ---------------------------------------------------------------------------
-# Deduplication — usate da pipeline/deduplicator.py
-# ---------------------------------------------------------------------------
-
-# Soglia di similarità per fuzzy dedup (Jaccard/cosine su token).
-# 1.0 = match esatto, 0.0 = nessuna similarità.
-# Valori consigliati: 0.80–0.90 per UGC, 0.85–0.95 per news.
-#
-# NOTA: il fuzzy dedup è predisposto ma NON attivo nella pipeline corrente.
-# Il deduplicator usa solo match esatto su URL e titolo+dominio normalizzati.
-# Il costo O(n²) e i falsi positivi su testi brevi/UGC hanno sconsigliato
-# l'implementazione: i due livelli esatti coprono la maggioranza dei casi pratici.
-# Questo parametro è mantenuto come punto di configurazione per un'eventuale
-# implementazione futura (cfr. pipeline/deduplicator.py per la motivazione).
-# NOT ACTIVE — riservato per uso futuro. Non viene letto da nessun modulo corrente.
-FUZZY_DEDUP_THRESHOLD: float = 0.85
 
 
 # ---------------------------------------------------------------------------

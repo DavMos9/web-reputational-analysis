@@ -10,6 +10,7 @@ import requests
 from config import NYT_API_KEY
 from models import RawRecord
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 
 BASE_URL = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
 
@@ -17,7 +18,7 @@ BASE_URL = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
 class NytCollector(BaseCollector):
     source_id = "nyt"
 
-    def collect(self, target: str, query: str, max_results: int = 10) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 10, **kwargs: object) -> list[RawRecord]:
         """
         Args:
             target:      entità analizzata.
@@ -35,7 +36,9 @@ class NytCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(BASE_URL, params=params, timeout=10)
+            response = http_get_with_retry(
+                BASE_URL, params=params, timeout=10, source_id=self.source_id
+            )
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:

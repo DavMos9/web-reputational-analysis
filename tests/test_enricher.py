@@ -29,15 +29,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from models import Record
+from normalizers.utils import normalize_language_code as _normalize_language_code
 from pipeline.enricher import (
     Enricher,
     build_analysis_text,
     detect_language,
     resolve_language,
-    analyze_sentiment,
-    enrich_record,
-    enrich_all,
-    _normalize_language_code,
     _MIN_LEN_DETECT,
     _MIN_LEN_SENTIMENT,
 )

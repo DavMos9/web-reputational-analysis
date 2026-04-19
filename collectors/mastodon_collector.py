@@ -34,6 +34,7 @@ import time
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import MASTODON_ACCESS_TOKEN, MASTODON_TOKEN_INSTANCE, MASTODON_INSTANCES
 from models import RawRecord
 
@@ -58,7 +59,7 @@ class MastodonCollector(BaseCollector):
         query: str,
         max_results: int = 30,
         instances: tuple[str, ...] | None = None,
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -139,11 +140,12 @@ class MastodonCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 f"{base_url}/api/v2/search",
                 params=params,
                 headers=self._build_headers(instance),
                 timeout=15,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             data = response.json()
@@ -191,11 +193,12 @@ class MastodonCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 f"{base_url}/api/v1/timelines/tag/{hashtag}",
                 params=params,
                 headers=self._build_headers(instance),
                 timeout=15,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             statuses = response.json()

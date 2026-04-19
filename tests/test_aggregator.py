@@ -191,6 +191,13 @@ class TestSourceTrust:
         # Solo mastodon (0.60) incluso
         assert abs(trust - 0.60) < 1e-4
 
+    def test_single_source_below_threshold_uses_fallback(self):
+        """Un solo record con sorgente sconosciuta (default 0.50) → fallback su se stesso."""
+        r = _record(source="unknown_source_xyz", url="https://a.com/1")  # default 0.50
+        trust = _compute_source_trust([r])
+        # Tutti sotto soglia → fallback: media = 0.50
+        assert abs(trust - 0.50) < 1e-4
+
 
 # ---------------------------------------------------------------------------
 # Test: recency score
@@ -330,6 +337,50 @@ class TestTrend:
             _record(sentiment=None, date_str="2026-04-10", url="https://a.com/3"),
         ]
         assert _compute_trend(records) == "unknown"
+
+    def test_non_uniform_dates_old_negative_recent_neutral(self):
+        """
+        Verifica il fix indice ordinale → distanza in giorni reale.
+
+        Con l'indice ordinale (0, 1, 2, 3), un record di 180 giorni fa
+        con sentiment molto negativo e tre record recenti neutrali
+        produrrebbe una slope distorta verso "down" perché il record
+        antico ha x=0 e gli altri x=1,2,3 a distanza 1 tra loro.
+
+        Con la distanza in giorni reale (0, 180, 181, 182), il gap
+        enorme tra il record antico e i recenti riduce drasticamente
+        la slope (quasi zero), producendo "stable" o comunque non "down".
+        """
+        records = [
+            # Record di 180 giorni fa, fortemente negativo
+            _record(sentiment=-0.9, date_str="2025-10-21", url="https://a.com/1"),
+            # Tre record recenti, sentiment neutro
+            _record(sentiment=0.0, date_str="2026-04-18", url="https://a.com/2"),
+            _record(sentiment=0.0, date_str="2026-04-19", url="https://a.com/3"),
+            _record(sentiment=0.0, date_str="2026-04-20", url="https://a.com/4"),
+        ]
+        # Con distanza in giorni reale la slope è quasi zero: il record
+        # antico a x=0 e i recenti a x≈180 formano una retta quasi piatta
+        # perché il salto dal record antico (-0.9) ai recenti (0.0) avviene
+        # su un asse x molto ampio, smorzando la pendenza.
+        # Ci aspettiamo "stable" — sicuramente NON "down".
+        trend = _compute_trend(records)
+        assert trend != "down", (
+            f"Trend atteso 'stable', ricevuto '{trend}'. "
+            "Probabile regressione nel calcolo x = giorni reali."
+        )
+
+    def test_uniform_dates_still_detected_correctly(self):
+        """
+        Con date uniformi (gap costante), il trend deve rimanere corretto
+        indipendentemente dall'approccio (ordinale o giorni erano equivalenti).
+        """
+        records = [
+            _record(sentiment=-0.5, date_str="2026-04-01", url="https://a.com/1"),
+            _record(sentiment=0.0,  date_str="2026-04-02", url="https://a.com/2"),
+            _record(sentiment=0.5,  date_str="2026-04-03", url="https://a.com/3"),
+        ]
+        assert _compute_trend(records) == "up"
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ import time
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import STACKEXCHANGE_API_KEY
 from models import RawRecord
 
@@ -55,7 +56,7 @@ class StackExchangeCollector(BaseCollector):
         max_results: int = 30,
         sites: tuple[str, ...] | None = None,
         sort: str = "relevance",
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -103,10 +104,11 @@ class StackExchangeCollector(BaseCollector):
             params["key"] = STACKEXCHANGE_API_KEY
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 f"{_BASE_URL}/search/excerpts",
                 params=params,
                 timeout=15,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             data = response.json()

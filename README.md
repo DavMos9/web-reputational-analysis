@@ -188,32 +188,32 @@ Le fonti senza API key (GDELT, Wikipedia, WikiTalk, Lemmy, Bluesky) funzionano s
 ### Esecuzione base
 
 ```bash
-python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni"
+python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni" --since 2026-01-01
 ```
 
 Output atteso:
 
 ```
-2026-04-18T16:20:33 [INFO] === Pipeline avviata: target='Giorgia Meloni', fonti=['news', 'gdelt', 'wikipedia', 'youtube', 'youtube_comments', 'guardian', 'nyt', 'bluesky', 'mastodon', 'lemmy', 'wikitalk', 'brave', 'gnews_it', 'reddit', 'bbc', 'ansa'] ===
-[news] Raccolti 15 record per query: 'Giorgia Meloni'
-[gdelt] Raccolti 20 record per query: 'Giorgia Meloni'
-[wikipedia] Raccolti 1 record per query: 'Giorgia Meloni'
-[youtube] Raccolti 19 record per query: 'Giorgia Meloni'
-[guardian] Raccolti 20 record per query: 'Giorgia Meloni'
+2026-04-19T15:39:24 [INFO] === Pipeline avviata: target='Giorgia Meloni', fonti=['news', 'gdelt', 'wikipedia', 'youtube', 'youtube_comments', 'guardian', 'nyt', 'bluesky', 'mastodon', 'lemmy', 'wikitalk', 'brave', 'gnews_it', 'reddit', 'bbc', 'ansa'] ===
+2026-04-19T15:39:25 [INFO] [news] Raccolti 16 record per query: 'Giorgia Meloni'
+2026-04-19T15:39:25 [INFO] [gdelt] Raccolti 20 record per query: 'Giorgia Meloni'
+2026-04-19T15:39:25 [INFO] [wikipedia] Raccolti 1 record per query: 'Giorgia Meloni'
+2026-04-19T15:39:25 [INFO] [youtube] Raccolti 20 record per query: 'Giorgia Meloni'
+2026-04-19T15:39:25 [INFO] [guardian] Raccolti 20 record per query: 'Giorgia Meloni'
 ...
-2026-04-18T16:21:33 [INFO] Deduplicati: 20 rimossi, 227 record unici.
-2026-04-18T16:21:44 [INFO] Enrichment: 227/227 record con language, 222/227 con sentiment.
-2026-04-18T16:21:44 [INFO] Aggregazione completata per 'Giorgia Meloni': 227 record, reputation=0.5572, trend=stable
-2026-04-18T16:21:44 [INFO] === Pipeline completata: 227 record finali, reputation=0.5572 ===
+2026-04-19T15:39:32 [INFO] Deduplicati: 23 rimossi, 236 record unici.
+2026-04-19T15:39:44 [INFO] Enrichment: 235/236 record con language, 228/236 con sentiment.
+2026-04-19T15:39:44 [INFO] Aggregazione completata per 'Giorgia Meloni': 236 record, reputation=0.5843, trend=stable
+2026-04-19T15:39:44 [INFO] === Pipeline completata: 236 record finali, reputation=0.5843 ===
 
-Risultato: 227 record finali esportati in data/final/
+Risultato: 236 record finali esportati in data/final/
 
 --- Reputation Summary: Giorgia Meloni ---
-  Reputation Score: 0.5572
-  Sentiment (avg):  -0.374831
+  Reputation Score: 0.5843
+  Sentiment (avg):  -0.296979
   Trend:            stable
-  Sources:          227 record da 14 fonti
-  Date range:       ('2026-01-16', '2026-04-18')
+  Sources:          236 record da 15 fonti
+  Date range:       ('2026-01-10', '2026-04-19')
 ```
 
 ### Query multiple
@@ -316,28 +316,37 @@ Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'
 ```json
 {
   "entity": "Giorgia Meloni",
-  "record_count": 91,
-  "records_with_sentiment": 74,
+  "record_count": 236,
+  "records_with_sentiment": 228,
   "source_distribution": {
-    "news": 20,
+    "mastodon": 43,
     "gdelt": 20,
     "youtube": 20,
-    "guardian": 20,
+    "bluesky": 20,
+    "wikitalk": 20,
+    "gnews_it": 20,
+    "youtube_comments": 18,
+    "brave": 16,
+    "news": 15,
+    "guardian": 12,
     "nyt": 10,
+    "lemmy": 10,
+    "reddit": 7,
+    "ansa": 4,
     "wikipedia": 1
   },
-  "sentiment_avg": 0.0523,
-  "sentiment_std": 0.4218,
-  "source_trust_avg": 0.8142,
-  "recency_score": 0.7856,
-  "volume_score": 0.8503,
-  "reputation_score": 0.5842,
+  "sentiment_avg": -0.296979,
+  "sentiment_std": 0.427672,
+  "source_trust_avg": 0.718,
+  "recency_score": 0.870135,
+  "volume_score": 0.542295,
+  "reputation_score": 0.5843,
   "trend": "stable",
   "date_range": {
-    "from": "2026-03-10",
-    "to": "2026-04-08"
+    "from": "2026-01-10",
+    "to": "2026-04-19"
   },
-  "computed_at": "2026-04-08T18:12:32Z"
+  "computed_at": "2026-04-19T13:39:44Z"
 }
 ```
 
@@ -356,46 +365,52 @@ Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'
 
 ### Esempio di analisi reale
 
-Un'esecuzione su `"OpenAI"` con query `"OpenAI GPT"` e `"OpenAI lawsuits"` potrebbe produrre:
+Esecuzione reale su `"Giorgia Meloni"` con query `"Giorgia Meloni"` e filtro `--since 2026-01-01` (19 aprile 2026, 15 fonti attive):
 
 ```json
 {
-  "entity": "OpenAI",
-  "record_count": 127,
-  "records_with_sentiment": 98,
+  "entity": "Giorgia Meloni",
+  "record_count": 236,
+  "records_with_sentiment": 228,
   "source_distribution": {
-    "news": 35,
-    "gdelt": 28,
-    "guardian": 18,
-    "youtube": 16,
-    "bluesky": 12,
-    "mastodon": 8,
-    "nyt": 6,
-    "stackexchange": 3,
+    "mastodon": 43,
+    "gdelt": 20,
+    "youtube": 20,
+    "bluesky": 20,
+    "wikitalk": 20,
+    "gnews_it": 20,
+    "youtube_comments": 18,
+    "brave": 16,
+    "news": 15,
+    "guardian": 12,
+    "nyt": 10,
+    "lemmy": 10,
+    "reddit": 7,
+    "ansa": 4,
     "wikipedia": 1
   },
-  "sentiment_avg": -0.0842,
-  "sentiment_std": 0.5123,
-  "source_trust_avg": 0.7890,
-  "recency_score": 0.9012,
-  "volume_score": 0.9350,
-  "reputation_score": 0.5234,
-  "trend": "down",
+  "sentiment_avg": -0.296979,
+  "sentiment_std": 0.427672,
+  "source_trust_avg": 0.718,
+  "recency_score": 0.870135,
+  "volume_score": 0.542295,
+  "reputation_score": 0.5843,
+  "trend": "stable",
   "date_range": {
-    "from": "2026-03-05",
-    "to": "2026-04-13"
+    "from": "2026-01-10",
+    "to": "2026-04-19"
   },
-  "computed_at": "2026-04-13T10:30:00Z"
+  "computed_at": "2026-04-19T13:39:44Z"
 }
 ```
 
-In questo caso: il sentiment medio è leggermente negativo (-0.08) con alta dispersione (0.51), indicando opinioni polarizzate. Il trend è `"down"`, suggerendo un peggioramento nel periodo analizzato. L'alto recency score (0.90) indica che la maggior parte dei contenuti è recente. Il reputation score complessivo (0.52) riflette una reputazione attorno alla neutralità, trascinata verso il basso dal sentiment negativo.
+Il sentiment medio è negativo (-0.30) con dispersione moderata (0.43): indica opinioni prevalentemente critiche ma non uniformi — coerente con un politico divisivo. Il reputation score (0.58) supera la neutralità nonostante il sentiment negativo, grazie al `source_trust_avg` (0.72) trainato dall'alto peso di Guardian (1.00) e NYT (0.95). Il `recency_score` elevato (0.87) indica che la maggior parte dei contenuti è recente rispetto alla finestra 2026-01-01. Il trend è `"stable"`: la pendenza della regressione lineare sul sentiment non supera la soglia configurata (0.005), segno che non c'è un deterioramento o miglioramento netto nel periodo analizzato.
 
 ---
 
 ## Limiti noti
 
-**GDELT:** applica rate limiting variabile. In caso di errori 429 o body vuoto, il collector esegue retry automatico con backoff esponenziale (fino a 5 tentativi, cap 60s). Se GDELT è sovraccarico, alcune query potrebbero restituire 0 risultati. Query con token molto corti (< 3 caratteri) vengono sanitizzate automaticamente.
+**GDELT:** applica rate limiting variabile. In caso di errori 429 o body vuoto, il collector esegue retry automatico con backoff esponenziale (fino a 3 tentativi, cap 60s). Se GDELT è sovraccarico, alcune query potrebbero restituire 0 risultati. Query con token molto corti (< 3 caratteri) vengono sanitizzate automaticamente.
 
 **NewsAPI:** il piano gratuito è limitato a 100 richieste/giorno e agli articoli degli ultimi 30 giorni. La lingua è configurabile via `--news-language` ma non tutte le lingue hanno la stessa copertura.
 

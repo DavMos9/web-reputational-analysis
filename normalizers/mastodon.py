@@ -27,10 +27,7 @@ import re
 
 from models import RawRecord, Record
 from normalizers.registry import register
-from normalizers.utils import to_date, to_url, first_non_empty, to_int
-
-
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
+from normalizers.utils import to_date, to_url, first_non_empty, to_int, HTML_TAG_RE
 
 
 def _html_to_text(content: str) -> str:
@@ -48,7 +45,7 @@ def _html_to_text(content: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", content)
     # </p><p> → doppio newline (cambio paragrafo)
     text = re.sub(r"</p>\s*<p>", "\n\n", text)
-    text = _HTML_TAG_RE.sub("", text)
+    text = HTML_TAG_RE.sub("", text)
     text = html.unescape(text)
     # Normalizza whitespace (preserva singoli newline)
     lines = [line.strip() for line in text.splitlines()]

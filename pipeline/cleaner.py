@@ -23,7 +23,9 @@ Separare clean e filter permette di:
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 import unicodedata
 from dataclasses import replace
 
@@ -40,10 +42,29 @@ _OPTIONAL_STR = ("author", "language")
 
 
 def _clean_str(value: str | None) -> str:
-    """Strip + normalizzazione Unicode NFC."""
+    """Strip, decodifica HTML entities, normalizza whitespace orizzontale, NFC.
+
+    Operazioni in ordine:
+    1. html.unescape(): &quot;→"  &amp;→&  &nbsp;→\xa0  &#N;→char  ecc.
+    2. Rimozione caratteri di controllo Unicode: \x00–\x08, \x0b, \x0c,
+       \x0e–\x1f, \x7f–\x9f. Questi possono provenire da alcune API (null
+       bytes, BOM residui, ecc.) e corromperebbero silenziosamente il JSON/CSV
+       di output. \t (\x09), \n (\x0a) e \r (\x0d) vengono preservati
+       perché sono whitespace legittimo nel contenuto testuale.
+    3. Collasso whitespace orizzontale: ogni sequenza di spazi, tab o \xa0
+       (non-breaking space, usato da Google News come separatore) diventa
+       un singolo spazio. I newline (\n, \r) NON vengono toccati: sono
+       contenuto reale nei post social, commenti e testo Wikipedia.
+    4. strip() finale per rimuovere spazi ai bordi.
+    5. unicodedata.normalize("NFC"): forma canonica composta.
+    """
     if value is None:
         return ""
-    return unicodedata.normalize("NFC", str(value).strip())
+    raw = html.unescape(str(value).strip())
+    # Rimuove caratteri di controllo (preserva \t=\x09, \n=\x0a, \r=\x0d)
+    raw = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", raw)
+    raw = re.sub(r"[ \t\xa0]+", " ", raw)
+    return unicodedata.normalize("NFC", raw.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +97,24 @@ def clean(record: Record) -> Record:
 def clean_all(records: list[Record]) -> list[Record]:
     """Pulisce una lista di Record. Non filtra — restituisce sempre lo stesso numero."""
     return [clean(r) for r in records]
+
+
+def filter_quality_all(records: list[Record]) -> list[Record]:
+    """
+    Scarta i Record che non soddisfano la soglia minima di qualità.
+
+    Variante semplificata di filter_quality() che restituisce solo la lista
+    dei record validi, senza il contatore dei rimossi. Comoda nei contesti
+    (test, notebook) in cui il numero di scartati non interessa.
+
+    Args:
+        records: lista di Record già puliti.
+
+    Returns:
+        Lista di Record validi (stessa semantica di filter_quality()[0]).
+    """
+    valid, _ = filter_quality(records)
+    return valid
 
 
 # ---------------------------------------------------------------------------

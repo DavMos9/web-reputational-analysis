@@ -95,3 +95,19 @@ Usa il template [`bug_report`](.github/ISSUE_TEMPLATE/bug_report.md). Includi se
 ## Richiedere una funzionalità
 
 Usa il template [`feature_request`](.github/ISSUE_TEMPLATE/feature_request.md). Se si tratta di un nuovo collector, specifica fonte, documentazione API, API key necessaria e limite del piano gratuito.
+
+---
+
+## Feature future note
+
+### Fuzzy deduplication
+
+Il deduplicator (`pipeline/deduplicator.py`) usa attualmente due livelli di dedup esatti:
+URL canonico e coppia (titolo normalizzato, dominio). Un terzo livello basato su
+similarità testuale (Jaccard su token o cosine su TF-IDF) è stato valutato ma non
+implementato per due motivi: costo computazionale O(n²) su corpus grandi, e falsi
+positivi su testi brevi o su aggiornamenti dello stesso breaking news.
+
+Chi volesse implementarlo può usare come punto di partenza il valore di soglia
+consigliato: **0.85** per news, **0.80** per UGC. Considerare l'uso di LSH
+(Locality-Sensitive Hashing) per portare il costo a O(n log n).

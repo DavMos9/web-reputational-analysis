@@ -12,6 +12,7 @@ import requests
 from config import GUARDIAN_API_KEY
 from models import RawRecord
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ BASE_URL = "https://content.guardianapis.com/search"
 class GuardianCollector(BaseCollector):
     source_id = "guardian"
 
-    def collect(self, target: str, query: str, max_results: int = 20) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 20, **kwargs: object) -> list[RawRecord]:
         """
         Args:
             target:      entità analizzata.
@@ -41,7 +42,9 @@ class GuardianCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(BASE_URL, params=params, timeout=10)
+            response = http_get_with_retry(
+                BASE_URL, params=params, timeout=10, source_id=self.source_id
+            )
 
             if response.status_code == 429:
                 log.warning(

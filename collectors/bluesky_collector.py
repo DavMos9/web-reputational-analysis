@@ -21,13 +21,15 @@ Rate limit: 1500 richieste/5 minuti per IP + account.
 from __future__ import annotations
 
 import logging
+import threading
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import BLUESKY_HANDLE, BLUESKY_APP_PASSWORD
 from models import RawRecord
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 _BASE_URL = "https://bsky.social/xrpc"
 _SESSION_URL = f"{_BASE_URL}/com.atproto.server.createSession"
@@ -47,6 +49,9 @@ class BlueskyCollector(BaseCollector):
 
     def __init__(self) -> None:
         self._access_jwt: str | None = None
+        # Lock per proteggere _access_jwt in contesto parallelo (ThreadPoolExecutor):
+        # più thread possono chiamare collect() sulla stessa istanza contemporaneamente.
+        self._jwt_lock: threading.Lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -58,7 +63,7 @@ class BlueskyCollector(BaseCollector):
         query: str,
         max_results: int = 50,
         sort: str = "latest",
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -68,9 +73,7 @@ class BlueskyCollector(BaseCollector):
             sort:        "latest" (cronologico, default) o "top" (per engagement).
         """
         if not BLUESKY_HANDLE or not BLUESKY_APP_PASSWORD:
-            logger.warning(
-                "[bluesky] BLUESKY_HANDLE e BLUESKY_APP_PASSWORD non configurati — skip."
-            )
+            self._log_skip("BLUESKY_HANDLE e BLUESKY_APP_PASSWORD non configurati")
             return []
 
         token = self._get_token()
@@ -85,19 +88,23 @@ class BlueskyCollector(BaseCollector):
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            response = requests.get(
-                _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT
+            response = http_get_with_retry(
+                _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT,
+                source_id=self.source_id,
             )
-            # Token scaduto → rigenera una volta
+            # Token scaduto → invalida il cache e rigenera una volta.
+            # Il reset sotto lock garantisce che altri thread non usino un token scaduto.
             if response.status_code == 401:
-                logger.info("[bluesky] Token scaduto, rinnovo sessione.")
-                self._access_jwt = None
+                log.info("[bluesky] Token scaduto, rinnovo sessione.")
+                with self._jwt_lock:
+                    self._access_jwt = None
                 token = self._get_token()
                 if not token:
                     return []
                 headers = {"Authorization": f"Bearer {token}"}
-                response = requests.get(
-                    _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT
+                response = http_get_with_retry(
+                    _SEARCH_URL, params=params, headers=headers, timeout=_HTTP_TIMEOUT,
+                    source_id=self.source_id,
                 )
             response.raise_for_status()
             posts = response.json().get("posts", [])
@@ -118,23 +125,36 @@ class BlueskyCollector(BaseCollector):
     # ------------------------------------------------------------------
 
     def _get_token(self) -> str | None:
-        """Restituisce il JWT in cache o ne crea uno nuovo."""
+        """
+        Restituisce il JWT in cache o ne crea uno nuovo.
+
+        Thread-safe: usa un Lock per prevenire login concorrenti se più thread
+        chiamano collect() sulla stessa istanza (ThreadPoolExecutor con più query).
+        Double-checked locking: fast path senza lock se il token è già disponibile.
+        """
+        # Fast path: token già disponibile, nessun lock richiesto.
         if self._access_jwt:
             return self._access_jwt
 
-        try:
-            response = requests.post(
-                _SESSION_URL,
-                json={"identifier": BLUESKY_HANDLE, "password": BLUESKY_APP_PASSWORD},
-                timeout=_HTTP_TIMEOUT,
-            )
-            response.raise_for_status()
-            self._access_jwt = response.json()["accessJwt"]
-            logger.info("[bluesky] Sessione autenticata creata per %s.", BLUESKY_HANDLE)
-            return self._access_jwt
-        except requests.RequestException as e:
-            logger.error("[bluesky] Impossibile creare sessione: %s", e)
-            return None
-        except KeyError:
-            logger.error("[bluesky] Risposta login non contiene accessJwt.")
-            return None
+        with self._jwt_lock:
+            # Secondo check dentro il lock: un altro thread potrebbe aver già
+            # completato il login mentre aspettavamo.
+            if self._access_jwt:
+                return self._access_jwt
+
+            try:
+                response = requests.post(
+                    _SESSION_URL,
+                    json={"identifier": BLUESKY_HANDLE, "password": BLUESKY_APP_PASSWORD},
+                    timeout=_HTTP_TIMEOUT,
+                )
+                response.raise_for_status()
+                self._access_jwt = response.json()["accessJwt"]
+                log.info("[bluesky] Sessione autenticata creata per %s.", BLUESKY_HANDLE)
+                return self._access_jwt
+            except requests.RequestException as e:
+                log.error("[bluesky] Impossibile creare sessione: %s", e)
+                return None
+            except KeyError:
+                log.error("[bluesky] Risposta login non contiene accessJwt.")
+                return None

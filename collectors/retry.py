@@ -4,15 +4,20 @@ collectors/retry.py
 Utility HTTP con retry e backoff esponenziale con jitter.
 
 Fornisce http_get_with_retry() come sostituto drop-in di requests.get()
-per i collector che vogliono retry automatico su 429 e 5xx senza
-implementare la logica di backoff in ogni file.
+per i collector che vogliono retry automatico senza implementare la logica
+di backoff in ogni file.
 
 Politica di retry:
-    - HTTP 429 (Rate Limit):  attende base_delay + U(0, jitter_max) secondi
-    - HTTP 5xx (Server Error): attende base_delay * (2 ** tentativo) secondi
-    - Errori di rete (timeout, connection): non sono soggetti a retry
-      (decisione intenzionale: i network error sono già gestiti dal caller
-      con un try/except requests.RequestException che restituisce [])
+    - HTTP 429 (Rate Limit):           attende base_delay + U(0, jitter_max) secondi
+    - HTTP 5xx (Server Error):          attende base_delay * (2 ** tentativo) secondi
+    - requests.Timeout / ConnectTimeout: attende base_delay secondi (1 retry)
+    - requests.ConnectionError:         attende base_delay secondi (1 retry)
+    - Altri errori di rete:             ri-sollevati immediatamente (no retry)
+
+Il retry su errori di rete (Timeout, ConnectionError) usa lo stesso numero
+massimo di tentativi degli errori HTTP (max_retries). Per pipeline batch
+che girano una sola volta, un timeout passeggero vale la pena di essere
+ritentato anziché scartare l'intera sorgente.
 
 Uso:
     from collectors.retry import http_get_with_retry
@@ -28,7 +33,7 @@ Uso:
 
 La funzione mantiene la stessa firma di requests.get() per i parametri
 principali (url, params, headers, timeout) ed è un drop-in replacement.
-Solleva requests.RequestException sugli errori di rete (come requests.get),
+Solleva requests.RequestException sugli errori di rete non recuperabili,
 e restituisce la Response dell'ultimo tentativo anche se è un 4xx/5xx
 (il caller può ancora chiamare raise_for_status()).
 """
@@ -79,19 +84,41 @@ def http_get_with_retry(
         requests.Response dell'ultimo tentativo eseguito.
 
     Raises:
-        requests.RequestException: su errori di rete (timeout, connection).
-            NON catturati qui — il caller deve gestirli.
+        requests.RequestException: su errori di rete non recuperabili dopo
+            aver esaurito i tentativi (es. Timeout persistente, SSL error).
     """
     label = f"[{source_id}]" if source_id else ""
     attempt = 0
 
     while True:
-        response = requests.get(
-            url,
-            params=params,
-            headers=headers,
-            timeout=timeout,
-        )
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+            )
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            # Errori di rete transitori: Timeout (server non risponde entro
+            # `timeout` secondi) e ConnectionError (reset TCP, DNS failure, ecc.).
+            # Vale la pena ritentare con lo stesso delay base degli errori HTTP.
+            if attempt >= max_retries:
+                log.warning(
+                    "%s Errore di rete (%s) — tentativi esauriti (%d/%d). "
+                    "Ri-sollevo l'eccezione.",
+                    label, type(exc).__name__, attempt, max_retries,
+                )
+                raise
+
+            delay = base_delay + random.uniform(0.0, jitter_max)
+            log.warning(
+                "%s Errore di rete (%s) — attendo %.1fs e riprovo "
+                "(tentativo %d/%d): %s",
+                label, type(exc).__name__, delay, attempt + 1, max_retries, exc,
+            )
+            time.sleep(delay)
+            attempt += 1
+            continue
 
         if response.status_code == 429:
             if attempt >= max_retries:

@@ -68,7 +68,11 @@ class EntitySummary:
                             Misura la polarizzazione: alta = opinioni divergenti.
                             None se < 2 record con sentiment.
 
-        source_trust_avg    Media pesata dell'autorevolezza delle sorgenti.
+        source_trust_avg    Media aritmetica dei pesi di autorevolezza dei record
+                            inclusi nel calcolo (sorgenti sopra MIN_SOURCE_TRUST).
+                            Ogni record contribuisce con il peso della sua sorgente;
+                            le sorgenti UGC a bassa autorevolezza vengono escluse
+                            dalla media (ma non dalla pipeline).
                             Range [0.0, 1.0].
         recency_score       Quanto sono recenti i record. Range [0.0, 1.0].
                             1.0 = tutti pubblicati oggi, 0.0 = tutti molto vecchi.
@@ -125,6 +129,12 @@ class EntitySummary:
 
 def _get_source_weight(source: str) -> float:
     """Restituisce il peso di autorevolezza per una sorgente."""
+    if source not in SOURCE_WEIGHTS:
+        log.debug(
+            "Sorgente '%s' non in SOURCE_WEIGHTS — usato peso default %.2f. "
+            "Aggiornare config.SOURCE_WEIGHTS se questa sorgente è permanente.",
+            source, SOURCE_WEIGHT_DEFAULT,
+        )
     return SOURCE_WEIGHTS.get(source, SOURCE_WEIGHT_DEFAULT)
 
 
@@ -182,11 +192,16 @@ def _compute_weighted_sentiment(records: list[Record]) -> tuple[float | None, fl
 
 def _compute_source_trust(records: list[Record]) -> float:
     """
-    Media semplice dell'autorevolezza delle sorgenti.
+    Media aritmetica dei pesi di autorevolezza dei record selezionati.
 
-    Usa solo i record il cui peso sorgente è >= MIN_SOURCE_TRUST per evitare
-    che sorgenti UGC ad alto volume (mastodon, reddit, brave) abbassino
-    artificialmente la media di trust quando la copertura editoriale è alta.
+    Il calcolo è intenzionalmente una media semplice (non pesata per volume):
+    ogni record contribuisce ugualmente con il peso SOURCE_WEIGHTS della sua
+    sorgente. Questo riflette la domanda "quanto è autorevole, in media, ogni
+    singolo record del corpus?", non "quale sorgente ha prodotto più record?".
+
+    Filtro: vengono inclusi solo i record la cui sorgente ha peso >= MIN_SOURCE_TRUST,
+    per evitare che sorgenti UGC ad alto volume (mastodon, reddit, brave: peso 0.55)
+    abbassino artificialmente la media quando la copertura editoriale è alta.
 
     Fallback: se TUTTI i record hanno peso < MIN_SOURCE_TRUST, la media viene
     calcolata su tutti i record per evitare trust_avg = 0.0 su dataset
@@ -325,14 +340,24 @@ def _compute_trend(records: list[Record]) -> str:
             dated.append((r.date, r.sentiment))
 
     if len(dated) < MIN_RECORDS_FOR_TREND:
+        log.debug(
+            "Trend non calcolabile: %d record con data+sentiment, richiesti >= %d.",
+            len(dated), MIN_RECORDS_FOR_TREND,
+        )
         return "unknown"
 
     # Ordina per data
     dated.sort(key=lambda x: x[0])
 
     n = len(dated)
-    # x = indice ordinale, y = sentiment
-    x_vals = list(range(n))
+    # x = distanza in giorni dalla data minima del set.
+    # Usare l'indice ordinale (0,1,2,...) invece dei giorni reali
+    # produrrebbe una pendenza fuorviante quando i record non sono
+    # distribuiti uniformemente nel tempo (es. 5 record in un giorno
+    # e 1 sei mesi dopo: l'ultimo spingerebbe la slope senza rispecchiare
+    # il gap temporale reale).
+    min_date = date.fromisoformat(dated[0][0])
+    x_vals = [(date.fromisoformat(d) - min_date).days for d, _ in dated]
     y_vals = [s for _, s in dated]
 
     # Regressione lineare: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)

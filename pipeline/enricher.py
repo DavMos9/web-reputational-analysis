@@ -41,6 +41,7 @@ from config import (
     NLP_MIN_LEN_SENTIMENT as _MIN_LEN_SENTIMENT,
 )
 from models import Record
+from normalizers.utils import normalize_language_code as _normalize_language_code
 
 log = logging.getLogger(__name__)
 
@@ -53,26 +54,9 @@ log = logging.getLogger(__name__)
 # _SENTIMENT_SUPPORTED_LANGS sono importati da config.py:
 # modificare lì per cambiare soglie, modello o lingue supportate.
 
-# Mapping ISO 639-3 → ISO 639-1 per i codici più comuni restituiti da GDELT
-# e altre sorgenti che usano 3-letter codes.
-_ISO3_TO_ISO1: dict[str, str] = {
-    "ara": "ar", "zho": "zh", "nld": "nl", "eng": "en", "fra": "fr",
-    "deu": "de", "ell": "el", "hin": "hi", "hun": "hu", "ind": "id",
-    "ita": "it", "jpn": "ja", "kor": "ko", "nor": "no", "pol": "pl",
-    "por": "pt", "rum": "ro", "ron": "ro", "rus": "ru", "spa": "es",
-    "swe": "sv", "tur": "tr", "ukr": "uk", "vie": "vi",
-}
-
-# Mapping nome lingua esteso → ISO 639-1 (usato da alcune sorgenti come GDELT)
-_LANG_NAME_TO_ISO1: dict[str, str] = {
-    "arabic": "ar", "chinese": "zh", "dutch": "nl", "english": "en",
-    "french": "fr", "german": "de", "greek": "el", "hindi": "hi",
-    "hungarian": "hu", "indonesian": "id", "italian": "it",
-    "japanese": "ja", "korean": "ko", "norwegian": "no", "polish": "pl",
-    "portuguese": "pt", "romanian": "ro", "russian": "ru",
-    "spanish": "es", "swedish": "sv", "turkish": "tr",
-    "ukrainian": "uk", "vietnamese": "vi",
-}
+# _normalize_language_code è importata da normalizers.utils:
+# la logica di normalizzazione dei codici lingua appartiene al layer
+# di normalizzazione, non al layer di enrichment.
 
 
 # ---------------------------------------------------------------------------
@@ -99,51 +83,6 @@ def build_analysis_text(record: Record) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Normalizzazione codice lingua
-# ---------------------------------------------------------------------------
-
-def _normalize_language_code(raw_lang: str | None) -> str | None:
-    """
-    Normalizza un codice lingua in formato ISO 639-1 (2 lettere lowercase).
-
-    Gestisce i seguenti formati in input:
-    - ISO 639-1 standard: "en", "it", "fr"
-    - ISO 639-1 con variante regionale: "en-US", "zh-CN", "pt-BR" → "en", "zh", "pt"
-    - ISO 639-3 (3 lettere): "eng", "ita", "fra" → "en", "it", "fr"
-    - Nome esteso (inglese): "English", "Italian" → "en", "it"
-
-    Returns:
-        Codice ISO 639-1 normalizzato, oppure None se il formato è irriconoscibile.
-    """
-    if not raw_lang:
-        return None
-
-    normalized = raw_lang.strip().lower()
-
-    # Formato "en-US", "zh-CN", "pt-BR": prendi il codice primario
-    primary = normalized.split("-")[0].split("_")[0]
-
-    if len(primary) == 2:
-        # Già ISO 639-1 valido
-        return primary
-
-    if len(primary) == 3:
-        # Potrebbe essere ISO 639-3
-        mapped = _ISO3_TO_ISO1.get(primary)
-        if mapped:
-            return mapped
-
-    # Potrebbe essere un nome esteso ("english", "italian", ecc.)
-    mapped = _LANG_NAME_TO_ISO1.get(normalized)
-    if mapped:
-        return mapped
-
-    # Formato non riconosciuto: restituisce None anziché un codice arbitrario
-    log.debug("Codice lingua non riconosciuto: '%s'", raw_lang)
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Language detection
 # ---------------------------------------------------------------------------
 
@@ -151,11 +90,12 @@ def _normalize_language_code(raw_lang: str | None) -> str | None:
 # Verifica disponibilità a livello di modulo: il warning viene emesso una
 # sola volta all'import, non ripetuto ad ogni chiamata a detect_language().
 try:
-    from langdetect import DetectorFactory as _DetectorFactory
+    from langdetect import DetectorFactory as _DetectorFactory, detect as _langdetect_detect
     _DetectorFactory.seed = 0
     del _DetectorFactory
     _LANGDETECT_AVAILABLE: bool = True
 except ImportError:
+    _langdetect_detect = None  # type: ignore[assignment]
     _LANGDETECT_AVAILABLE = False
     log.warning(
         "langdetect non installato — language detection disabilitata. "
@@ -182,9 +122,7 @@ def detect_language(text: str) -> str | None:
         return None
 
     try:
-        from langdetect import detect
-
-        raw = detect(text)
+        raw = _langdetect_detect(text)  # type: ignore[misc]
         return _normalize_language_code(raw)
 
     except Exception as exc:
@@ -297,46 +235,72 @@ class Enricher:
             # completato l'inizializzazione mentre aspettavamo il lock.
             if self._pipeline_initialized:
                 return self._pipeline
-            self._pipeline_initialized = True
 
-        try:
-            import logging as _logging
-            from transformers import pipeline as hf_pipeline
+            # Il caricamento del modello avviene DENTRO il lock in modo che
+            # nessun altro thread possa osservare _pipeline_initialized=True
+            # mentre self._pipeline è ancora None (race condition DCL).
+            # _pipeline_initialized viene marcato True solo al termine,
+            # indipendentemente dall'esito (successo o fallimento).
+            try:
+                import logging as _logging
+                import os as _os
+                from transformers import pipeline as hf_pipeline
 
-            # XLM-RoBERTa emette un LOAD REPORT benigno su `position_ids`; lo sopprimo
-            # durante il caricamento e ripristino il livello originale dopo.
-            _modeling_logger = _logging.getLogger("transformers.modeling_utils")
-            _prev_level = _modeling_logger.level
-            _modeling_logger.setLevel(_logging.ERROR)
+                # Sopprimo tutto il rumore di caricamento HuggingFace:
+                # - "The following layers were not sharded" → transformers.modeling_utils
+                # - progress bar "Loading weights" → tqdm su stderr (TQDM_DISABLE)
+                # - altri warning benigni → root logger di transformers
+                # Ripristino tutti i livelli originali dopo il caricamento.
+                _hf_loggers = [
+                    _logging.getLogger("transformers"),
+                    _logging.getLogger("transformers.modeling_utils"),
+                ]
+                _prev_levels = [lg.level for lg in _hf_loggers]
+                for lg in _hf_loggers:
+                    lg.setLevel(_logging.ERROR)
 
-            log.info(
-                "Caricamento modello sentiment '%s' (primo utilizzo)...",
-                _SENTIMENT_MODEL,
-            )
-            self._pipeline = hf_pipeline(
-                task="sentiment-analysis",
-                model=_SENTIMENT_MODEL,
-                top_k=None,      # Restituisce scores per tutti i label
-                truncation=True,
-                max_length=512,  # Limite token; testi più lunghi vengono troncati
-            )
+                _prev_tqdm = _os.environ.get("TQDM_DISABLE")
+                _os.environ["TQDM_DISABLE"] = "1"
 
-            _modeling_logger.setLevel(_prev_level)
-            log.info("Modello sentiment caricato correttamente.")
+                log.info(
+                    "Caricamento modello sentiment '%s' (primo utilizzo)...",
+                    _SENTIMENT_MODEL,
+                )
+                self._pipeline = hf_pipeline(
+                    task="sentiment-analysis",
+                    model=_SENTIMENT_MODEL,
+                    top_k=None,      # Restituisce scores per tutti i label
+                    truncation=True,
+                    max_length=512,  # Limite token; testi più lunghi vengono troncati
+                )
 
-        except ImportError:
-            log.warning(
-                "transformers o torch non installati. Sentiment analysis disabilitata. "
-                "Installare con: pip install transformers torch"
-            )
-            self._pipeline = None
+                for lg, prev in zip(_hf_loggers, _prev_levels):
+                    lg.setLevel(prev)
+                if _prev_tqdm is None:
+                    _os.environ.pop("TQDM_DISABLE", None)
+                else:
+                    _os.environ["TQDM_DISABLE"] = _prev_tqdm
 
-        except Exception as exc:
-            log.error(
-                "Errore nel caricamento del modello sentiment '%s': %s",
-                _SENTIMENT_MODEL, exc,
-            )
-            self._pipeline = None
+                log.info("Modello sentiment caricato correttamente.")
+
+            except ImportError:
+                log.warning(
+                    "transformers o torch non installati. Sentiment analysis disabilitata. "
+                    "Installare con: pip install transformers torch"
+                )
+                self._pipeline = None
+
+            except Exception as exc:
+                log.error(
+                    "Errore nel caricamento del modello sentiment '%s': %s",
+                    _SENTIMENT_MODEL, exc,
+                )
+                self._pipeline = None
+
+            finally:
+                # Marcato sempre come inizializzato, anche in caso di errore:
+                # non si riprova il caricamento nelle chiamate successive (fail-fast).
+                self._pipeline_initialized = True
 
         return self._pipeline
 
@@ -413,8 +377,17 @@ class Enricher:
 
     def enrich_all(self, records: list[Record]) -> list[Record]:
         """
-        Arricchisce una lista di Record, restituendo record invariati per quelli
-        per cui language e sentiment non sono calcolabili.
+        Arricchisce una lista di Record con language detection e sentiment analysis.
+
+        Usa batch inference per il modello NLP: invece di chiamare la pipeline
+        HuggingFace una volta per record (overhead per ogni forward pass), raccoglie
+        tutti i testi eleggibili in un'unica lista e li processa in un solo batch.
+        Questo riduce il tempo di inferenza di 2–10× su CPU, ancora di più su GPU.
+
+        Un record è eleggibile al sentiment se:
+        - ha testo analizzabile (build_analysis_text non vuoto)
+        - la lingua è supportata dal modello (o None → il modello tenta comunque)
+        - il testo supera la soglia minima di lunghezza
 
         Args:
             records: lista di Record dopo deduplicate.
@@ -422,7 +395,97 @@ class Enricher:
         Returns:
             Lista di Record arricchiti (stesso ordine dell'input).
         """
-        enriched = [self.enrich_record(r) for r in records]
+        if not records:
+            return []
+
+        pipe = self._get_pipeline()
+
+        # --- Fase 1: language detection per tutti i record ---
+        # Rapida (langdetect, CPU-bound leggero); non beneficia di batching.
+        analysis_texts: list[str] = []
+        resolved_langs: list[str | None] = []
+        for r in records:
+            text = build_analysis_text(r)
+            lang = resolve_language(r, text)
+            analysis_texts.append(text)
+            resolved_langs.append(lang)
+
+        # --- Fase 2: batch inference sentiment ---
+        # Identifica quali record sono eleggibili per il batch.
+        # batch_indices: posizioni nell'array originale dei record eleggibili.
+        batch_indices: list[int] = []
+        batch_texts: list[str] = []
+
+        if pipe is not None:
+            for i, (text, lang) in enumerate(zip(analysis_texts, resolved_langs)):
+                if not text or len(text) < _MIN_LEN_SENTIMENT:
+                    continue
+                if lang is not None and lang not in _SENTIMENT_SUPPORTED_LANGS:
+                    log.debug(
+                        "Lingua '%s' non supportata dal modello sentiment. "
+                        "Campo non calcolato per record [source=%s].",
+                        lang, records[i].source,
+                    )
+                    continue
+                batch_indices.append(i)
+                batch_texts.append(text)
+
+        # Chiama il modello una sola volta per tutti i testi eleggibili.
+        # sentiment_map: indice_record → score float calcolato.
+        sentiment_map: dict[int, float | None] = {}
+        if batch_texts:
+            try:
+                batch_results = pipe(batch_texts)
+                for idx, raw in zip(batch_indices, batch_results):
+                    label_scores: list[dict] = (
+                        raw[0] if raw and isinstance(raw[0], list) else raw
+                    )
+                    score_map: dict[str, float] = {
+                        item["label"].lower(): float(item["score"])
+                        for item in label_scores
+                    }
+                    positive = score_map.get("positive", 0.0)
+                    negative = score_map.get("negative", 0.0)
+                    sentiment_map[idx] = round(
+                        max(-1.0, min(1.0, positive - negative)), 6
+                    )
+            except Exception as exc:
+                log.error(
+                    "Errore durante la batch inference del sentiment (%d record): %s",
+                    len(batch_texts), exc,
+                )
+                # Fallback record-per-record in caso di errore batch.
+                # Garantisce che un singolo testo problematico non faccia
+                # perdere tutti i risultati del batch.
+                for i, text in zip(batch_indices, batch_texts):
+                    try:
+                        raw = pipe(text)
+                        label_scores = raw[0] if raw and isinstance(raw[0], list) else raw
+                        score_map = {
+                            item["label"].lower(): float(item["score"])
+                            for item in label_scores
+                        }
+                        positive = score_map.get("positive", 0.0)
+                        negative = score_map.get("negative", 0.0)
+                        sentiment_map[i] = round(
+                            max(-1.0, min(1.0, positive - negative)), 6
+                        )
+                    except Exception as exc2:
+                        log.error(
+                            "Errore sentiment record %d (fallback): %s", i, exc2
+                        )
+                        sentiment_map[i] = None
+
+        # --- Fase 3: assembla i Record arricchiti ---
+        enriched: list[Record] = []
+        for i, (r, lang, text) in enumerate(zip(records, resolved_langs, analysis_texts)):
+            sentiment = sentiment_map.get(i)  # None se non eleggibile o errore
+            updates: dict = {}
+            if lang != r.language:
+                updates["language"] = lang
+            if sentiment != r.sentiment:
+                updates["sentiment"] = sentiment
+            enriched.append(replace(r, **updates) if updates else r)
 
         with_lang = sum(1 for r in enriched if r.language is not None)
         with_sentiment = sum(1 for r in enriched if r.sentiment is not None)
@@ -433,29 +496,3 @@ class Enricher:
         return enriched
 
 
-# ---------------------------------------------------------------------------
-# Istanza default e funzioni module-level (backward compatibility)
-# ---------------------------------------------------------------------------
-
-# Singleton condiviso per l'uso diretto delle funzioni module-level.
-# Runner e altri consumer che usano Enricher() esplicito non lo usano.
-_default_enricher: Enricher = Enricher()
-
-
-def analyze_sentiment(text: str, language: str | None) -> float | None:
-    """Wrapper module-level → delega a _default_enricher."""
-    return _default_enricher.analyze_sentiment(text, language)
-
-
-# ---------------------------------------------------------------------------
-# Entry point pubblici (module-level, backward compatible)
-# ---------------------------------------------------------------------------
-
-def enrich_record(record: Record) -> Record:
-    """Wrapper module-level → delega a _default_enricher."""
-    return _default_enricher.enrich_record(record)
-
-
-def enrich_all(records: list[Record]) -> list[Record]:
-    """Wrapper module-level → delega a _default_enricher."""
-    return _default_enricher.enrich_all(records)

@@ -20,6 +20,7 @@ import logging
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import YOUTUBE_API_KEY
 from models import RawRecord
 
@@ -38,7 +39,7 @@ class YouTubeCommentsCollector(BaseCollector):
         max_results: int = 50,
         max_videos: int = 3,
         order: str = "relevance",
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -88,7 +89,7 @@ class YouTubeCommentsCollector(BaseCollector):
             "order":      "relevance",
         }
         try:
-            response = requests.get(f"{BASE_URL}/search", params=params, timeout=10)
+            response = http_get_with_retry(f"{BASE_URL}/search", params=params, timeout=10, source_id=self.source_id)
             response.raise_for_status()
             return response.json().get("items", [])
         except requests.RequestException as e:
@@ -120,7 +121,7 @@ class YouTubeCommentsCollector(BaseCollector):
             "textFormat": "plainText",
         }
         try:
-            response = requests.get(f"{BASE_URL}/commentThreads", params=params, timeout=10)
+            response = http_get_with_retry(f"{BASE_URL}/commentThreads", params=params, timeout=10, source_id=self.source_id)
 
             if response.status_code == 403:
                 log.warning(

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from models import RawRecord, Record
 from normalizers.registry import register
-from normalizers.utils import to_date, to_url, to_domain, first_non_empty
+from normalizers.utils import to_date, to_url, to_domain, first_non_empty, normalize_language_code
 
 
 def _normalize(raw: RawRecord) -> Record:
@@ -26,7 +26,7 @@ def _normalize(raw: RawRecord) -> Record:
         url=url,
         query=raw.query,
         target=raw.target,
-        language=first_non_empty(p.get("language")),
+        language=normalize_language_code(p.get("language")),
         domain=to_domain(url) or first_non_empty(p.get("domain")),
         retrieved_at=raw.retrieved_at,
         raw_payload=p,

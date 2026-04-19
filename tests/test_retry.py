@@ -8,9 +8,12 @@ Copertura:
 - 500 primo → retry con backoff, secondo OK
 - 500 persistente → restituisce l'ultima response 500
 - 404 → restituisce subito senza retry
-- Errore di rete → propaga l'eccezione senza retry
 - Jitter applicato su 429 (delay = base + U(0, jitter_max))
 - Backoff esponenziale su 5xx (delay = base * 2^i)
+- requests.Timeout → ritentato una volta, poi ri-sollevato
+- requests.ConnectionError → ritentato una volta, poi ri-sollevato
+- requests.RequestException generica → propaga subito (non coperta dal retry)
+- max_retries=0 → nessun retry, Timeout propagato immediatamente
 """
 
 from __future__ import annotations
@@ -160,18 +163,103 @@ class TestRetryOn5xx:
 
 class TestNetworkErrors:
 
-    def test_request_exception_propagates(self):
+    def test_generic_request_exception_propagates_immediately(self):
+        """
+        requests.RequestException generica (non Timeout, non ConnectionError)
+        non è catturata dal retry e viene propagata subito.
+        """
         with patch(
             "collectors.retry.requests.get",
-            side_effect=req.RequestException("connection refused"),
-        ), patch("collectors.retry.time.sleep"):
+            side_effect=req.RequestException("ssl error"),
+        ) as mock_get, patch("collectors.retry.time.sleep"):
             with pytest.raises(req.RequestException):
                 http_get_with_retry("https://example.com")
+        # Non deve fare retry: chiamata singola
+        mock_get.assert_called_once()
 
-    def test_timeout_propagates(self):
+    def test_timeout_is_retried_then_raised(self):
+        """
+        requests.Timeout viene ritentato max_retries volte prima di
+        essere ri-sollevato. Con max_retries=1: 2 chiamate totali.
+        """
         with patch(
             "collectors.retry.requests.get",
             side_effect=req.Timeout("timed out"),
-        ), patch("collectors.retry.time.sleep"):
+        ) as mock_get, patch("collectors.retry.time.sleep") as mock_sleep, \
+             patch("collectors.retry.random.uniform", return_value=0.0):
             with pytest.raises(req.Timeout):
-                http_get_with_retry("https://example.com")
+                http_get_with_retry(
+                    "https://example.com",
+                    max_retries=1,
+                    base_delay=5.0,
+                )
+        # 1 tentativo iniziale + 1 retry = 2 chiamate
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_timeout_then_ok_returns_response(self):
+        """
+        Timeout al primo tentativo, risposta 200 al secondo → restituisce 200.
+        """
+        r200 = _resp(200)
+        with patch(
+            "collectors.retry.requests.get",
+            side_effect=[req.Timeout("timed out"), r200],
+        ) as mock_get, patch("collectors.retry.time.sleep"), \
+             patch("collectors.retry.random.uniform", return_value=0.0):
+            result = http_get_with_retry(
+                "https://example.com",
+                max_retries=1,
+            )
+        assert result.status_code == 200
+        assert mock_get.call_count == 2
+
+    def test_connection_error_is_retried_then_raised(self):
+        """
+        requests.ConnectionError viene ritentato max_retries volte prima
+        di essere ri-sollevato. Con max_retries=1: 2 chiamate totali.
+        """
+        with patch(
+            "collectors.retry.requests.get",
+            side_effect=req.ConnectionError("connection reset"),
+        ) as mock_get, patch("collectors.retry.time.sleep"), \
+             patch("collectors.retry.random.uniform", return_value=0.0):
+            with pytest.raises(req.ConnectionError):
+                http_get_with_retry(
+                    "https://example.com",
+                    max_retries=1,
+                )
+        assert mock_get.call_count == 2
+
+    def test_timeout_with_max_retries_zero_propagates_immediately(self):
+        """
+        Con max_retries=0 nessun retry: Timeout propagato alla prima chiamata.
+        """
+        with patch(
+            "collectors.retry.requests.get",
+            side_effect=req.Timeout("timed out"),
+        ) as mock_get, patch("collectors.retry.time.sleep"):
+            with pytest.raises(req.Timeout):
+                http_get_with_retry(
+                    "https://example.com",
+                    max_retries=0,
+                )
+        mock_get.assert_called_once()
+
+    def test_network_error_retry_uses_jitter_delay(self):
+        """
+        Il delay per il retry di rete usa base_delay + jitter (stesso schema di 429).
+        """
+        with patch(
+            "collectors.retry.requests.get",
+            side_effect=req.Timeout("timed out"),
+        ), patch("collectors.retry.time.sleep") as mock_sleep, \
+             patch("collectors.retry.random.uniform", return_value=3.0):
+            with pytest.raises(req.Timeout):
+                http_get_with_retry(
+                    "https://example.com",
+                    max_retries=1,
+                    base_delay=10.0,
+                    jitter_max=5.0,
+                )
+        mock_sleep.assert_called_once_with(13.0)  # 10 + 3 jitter

@@ -33,6 +33,7 @@ import logging
 
 import requests
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from models import RawRecord
 
 log = logging.getLogger(__name__)
@@ -73,7 +74,9 @@ class HackerNewsCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(url, params=params, timeout=10)
+            response = http_get_with_retry(
+                url, params=params, timeout=10, source_id=self.source_id
+            )
 
             if response.status_code == 429:
                 log.warning(

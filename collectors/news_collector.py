@@ -11,6 +11,7 @@ import requests
 from config import NEWS_API_KEY
 from models import RawRecord
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -44,37 +45,63 @@ class NewsCollector(BaseCollector):
             "language": language,
         }
 
+        data = self._fetch(params, query)
+        if data is None:
+            return []
+
+        articles = data.get("articles", [])
+
+        # Fallback senza filtro lingua: se la lingua era specificata ma non ha
+        # prodotto risultati, riproviamo senza vincolo linguistico. Questo copre
+        # target internazionali/italiani interrogati con language="en" (default).
+        if not articles and language:
+            log.info(
+                "[NewsCollector] 0 risultati con language='%s'. "
+                "Riprovo senza filtro lingua per query: '%s'.",
+                language, query,
+            )
+            params_nolang = {k: v for k, v in params.items() if k != "language"}
+            data = self._fetch(params_nolang, query)
+            if data is None:
+                return []
+            articles = data.get("articles", [])
+
+        records = [
+            self._make_raw(target, query, article)
+            for article in articles
+            if article.get("url")
+        ]
+
+        self._log_collected(query, len(records))
+        return records
+
+    def _fetch(self, params: dict, query: str) -> dict | None:
+        """Esegue la chiamata HTTP a NewsAPI e gestisce gli errori."""
         try:
-            response = requests.get(BASE_URL, params=params, timeout=10)
+            response = http_get_with_retry(
+                BASE_URL, params=params, timeout=10, source_id=self.source_id
+            )
 
             if response.status_code == 429:
                 log.warning(
                     "[NewsCollector] Limite giornaliero raggiunto (HTTP 429). "
                     "Piano gratuito: 100 req/giorno. Riprova domani o passa a un piano superiore."
                 )
-                return []
+                return None
 
             response.raise_for_status()
             data = response.json()
 
-            # Segnala se si è vicini al limite (campo 'code' nel body di NewsAPI)
             if data.get("status") == "error":
                 log.warning(
                     "[NewsCollector] Errore API: code='%s', message='%s'",
                     data.get("code", "unknown"),
                     data.get("message", ""),
                 )
-                return []
+                return None
+
+            return data
 
         except requests.RequestException as e:
             self._log_error(query, e)
-            return []
-
-        records = [
-            self._make_raw(target, query, article)
-            for article in data.get("articles", [])
-            if article.get("url")
-        ]
-
-        self._log_collected(query, len(records))
-        return records
+            return None

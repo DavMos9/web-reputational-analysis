@@ -101,11 +101,24 @@ def parse_args() -> argparse.Namespace:
             "senza consumare quota. Non disattiva la scrittura su disco."
         ),
     )
+    def _positive_int(value: str) -> int:
+        """Valida che il valore sia un intero >= 1 (per --keep-raw-days)."""
+        try:
+            n = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"valore non intero: {value!r}")
+        if n < 1:
+            raise argparse.ArgumentTypeError(
+                f"--keep-raw-days deve essere >= 1, ricevuto: {n}"
+            )
+        return n
+
     parser.add_argument(
-        "--keep-raw-days", type=int, default=None, metavar="N",
+        "--keep-raw-days", type=_positive_int, default=None, metavar="N",
         help=(
             "Elimina i file raw più vecchi di N giorni dopo la pipeline. "
-            "Default: nessuna pulizia. Utile per gestire lo spazio in data/raw/."
+            "Deve essere >= 1. Default: nessuna pulizia. "
+            "Utile per gestire lo spazio in data/raw/."
         ),
     )
     return parser.parse_args()

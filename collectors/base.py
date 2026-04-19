@@ -13,6 +13,7 @@ Ogni collector concreto deve:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -39,7 +40,11 @@ class BaseCollector(ABC):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        if not getattr(cls, "source_id", ""):
+        # Le classi astratte intermedie (es. una futura RSSBaseCollector che
+        # aggiunge utility comuni ma non implementa collect()) non hanno ancora
+        # un source_id concreto e non devono essere penalizzate dal check.
+        # Il controllo viene applicato solo alle sottoclassi concrete (non astratte).
+        if not inspect.isabstract(cls) and not getattr(cls, "source_id", ""):
             raise TypeError(
                 f"{cls.__name__} deve definire l'attributo di classe 'source_id'"
             )

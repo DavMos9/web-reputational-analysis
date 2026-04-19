@@ -36,7 +36,10 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
+
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
+from config import APP_USER_AGENT
 from models import RawRecord
 
 log = logging.getLogger(__name__)
@@ -50,7 +53,7 @@ _RSS_FEEDS: list[str] = [
 ]
 
 _HEADERS = {
-    "User-Agent": "web-reputational-analysis/0.4.0 (academic research pipeline)",
+    "User-Agent": APP_USER_AGENT,
 }
 
 
@@ -105,12 +108,7 @@ class BbcCollector(BaseCollector):
 
         def fetch_one(url: str) -> list[dict]:
             try:
-                resp = requests.get(url, headers=_HEADERS, timeout=timeout)
-                if resp.status_code == 429:
-                    log.warning(
-                        "[BbcCollector] Rate limit raggiunto (HTTP 429) su %s.", url
-                    )
-                    return []
+                resp = http_get_with_retry(url, headers=_HEADERS, timeout=timeout, source_id=self.source_id)
                 resp.raise_for_status()
                 return self._parse_rss(resp.text)
             except requests.RequestException as e:

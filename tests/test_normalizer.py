@@ -441,6 +441,70 @@ class TestNormalizeUnknownSource:
         raw = _raw("unknown_source", {"title": "No URL here"})
         assert normalize(raw) is None
 
+    def test_fallback_reads_headline_as_title(self):
+        """Chiave alternativa 'headline' viene usata come title quando 'title' assente."""
+        raw = _raw("unknown_source", {
+            "headline": "Breaking News",
+            "url": "https://example.com/article",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.title == "Breaking News"
+
+    def test_fallback_reads_link_as_url(self):
+        """Chiave alternativa 'link' viene usata come url quando 'url' assente."""
+        raw = _raw("unknown_source", {
+            "title": "Some Title",
+            "link": "https://example.com/via-link",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.url == "https://example.com/via-link"
+
+    def test_fallback_reads_body_as_text(self):
+        """Chiave alternativa 'body' viene usata come text quando 'text' assente."""
+        raw = _raw("unknown_source", {
+            "title": "T",
+            "url": "https://example.com",
+            "body": "Full body content here",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.text == "Full body content here"
+
+    def test_fallback_reads_weburl_as_url(self):
+        """Chiave 'webUrl' (Guardian-style) estratta correttamente dal fallback."""
+        raw = _raw("unknown_source", {
+            "webTitle": "Guardian-style Title",
+            "webUrl": "https://theguardian.com/article",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.url == "https://theguardian.com/article"
+        assert record.title == "Guardian-style Title"
+
+    def test_fallback_title_priority_over_headline(self):
+        """'title' ha priorità su 'headline' se entrambi presenti."""
+        raw = _raw("unknown_source", {
+            "title": "Primary Title",
+            "headline": "Secondary Headline",
+            "url": "https://example.com",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.title == "Primary Title"
+
+    def test_fallback_url_priority_title_url(self):
+        """'url' ha priorità su 'link' se entrambi presenti."""
+        raw = _raw("unknown_source", {
+            "title": "T",
+            "url": "https://primary.com",
+            "link": "https://secondary.com",
+        })
+        record = normalize(raw)
+        assert record is not None
+        assert record.url == "https://primary.com"
+
 
 # ---------------------------------------------------------------------------
 # Test: normalize_all()

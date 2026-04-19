@@ -7,10 +7,11 @@ Design:
 - Ogni normalizer si auto-registra chiamando register() al momento dell'import.
 - Il dispatcher normalize() è completamente ignaro delle sorgenti conosciute:
   non contiene alcun if/elif né riferimento diretto ai moduli sorgente.
-- Aggiungere una sorgente: creare normalizers/<source>.py + aggiungere l'import
-  in normalizers/__init__.py (unico file "indice" da aggiornare).
+- Aggiungere una sorgente: creare normalizers/<source>.py e chiamare register()
+  in fondo al file. Nessun altro file va modificato: l'auto-discovery in
+  normalizers/__init__.py importa automaticamente ogni nuovo modulo.
   Questo modulo (registry.py) non va mai toccato.
-- Rimuovere una sorgente: rimuovere l'import in normalizers/__init__.py.
+- Rimuovere una sorgente: eliminare il file normalizers/<source>.py.
 """
 
 from __future__ import annotations

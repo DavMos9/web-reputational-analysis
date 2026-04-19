@@ -51,7 +51,12 @@ _FRAGMENT_PRESERVING_SOURCES = frozenset({"wikitalk"})
 # Per queste fonti applichiamo solo il livello 1 (URL canonico).
 #   - youtube_comments: ogni commento ha title = titolo del video parent;
 #     l'identità è nel query-param `lc=<comment_id>` dell'URL.
-_TITLE_DEDUP_EXCLUDED_SOURCES = frozenset({"youtube_comments"})
+#   - wikitalk: il Livello 1 usa già il fragment URL (#Section) come chiave
+#     discriminante (preserve_fragment=True). Il Livello 2 (title + domain)
+#     creerebbe falsi positivi: sezioni Talk di pagine diverse con lo stesso
+#     titolo generico (es. "Note", "Discussione") e lo stesso dominio
+#     (es. it.wikipedia.org) verrebbero erroneamente collassate.
+_TITLE_DEDUP_EXCLUDED_SOURCES = frozenset({"youtube_comments", "wikitalk"})
 
 
 def _canonical_url(url: str, *, preserve_fragment: bool = False) -> str:
@@ -78,7 +83,7 @@ def _canonical_url(url: str, *, preserve_fragment: bool = False) -> str:
             clean_query,
             parsed.fragment if preserve_fragment else "",
         ))
-    except Exception:
+    except ValueError:
         return url.lower().strip()
 
 

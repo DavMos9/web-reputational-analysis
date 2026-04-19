@@ -22,6 +22,7 @@ import time
 import requests
 
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 from config import LEMMY_INSTANCES
 from models import RawRecord
 
@@ -47,7 +48,7 @@ class LemmyCollector(BaseCollector):
         instances: tuple[str, ...] | None = None,
         sort: str = "TopAll",
         content_types: tuple[str, ...] = _CONTENT_TYPES,
-        **kwargs,
+        **kwargs: object,
     ) -> list[RawRecord]:
         """
         Args:
@@ -94,10 +95,11 @@ class LemmyCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(
+            response = http_get_with_retry(
                 f"https://{instance}/api/v3/search",
                 params=params,
                 timeout=15,
+                source_id=self.source_id,
             )
             response.raise_for_status()
             data = response.json()

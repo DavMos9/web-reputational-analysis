@@ -32,6 +32,7 @@ import requests
 from config import BRAVE_API_KEY
 from models import RawRecord
 from collectors.base import BaseCollector
+from collectors.retry import http_get_with_retry
 
 BASE_URL = "https://api.search.brave.com/res/v1/web/search"
 
@@ -84,7 +85,9 @@ class BraveCollector(BaseCollector):
         }
 
         try:
-            response = requests.get(BASE_URL, params=params, headers=headers, timeout=10)
+            response = http_get_with_retry(
+                BASE_URL, params=params, headers=headers, timeout=10, source_id=self.source_id
+            )
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:

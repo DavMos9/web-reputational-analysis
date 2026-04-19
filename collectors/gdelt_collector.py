@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 _REQUEST_DELAY  = 3.0   # secondi di pausa minima tra chiamate consecutive
-_MAX_RETRIES    = 5     # tentativi HTTP totali prima di rinunciare
+_MAX_RETRIES    = 3     # tentativi HTTP totali prima di rinunciare
 _MAX_BACKOFF    = 60.0  # cap sul tempo di attesa tra retry (secondi)
 _JITTER_RANGE   = (0.75, 1.25)  # moltiplicatore ±25% anti-thundering-herd
 _BODY_PREVIEW   = 300   # caratteri di anteprima del body nei log di errore
@@ -72,7 +72,7 @@ def _sanitize_gdelt_query(query: str) -> str:
 class GdeltCollector(BaseCollector):
     source_id = "gdelt"
 
-    def collect(self, target: str, query: str, max_results: int = 75) -> list[RawRecord]:
+    def collect(self, target: str, query: str, max_results: int = 75, **kwargs: object) -> list[RawRecord]:
         """
         Args:
             target:      entità analizzata.

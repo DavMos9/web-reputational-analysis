@@ -139,6 +139,8 @@ class Record:
     def __post_init__(self) -> None:
         if not self.source:
             raise ValueError("Record.source non può essere vuoto")
+        if not self.target:
+            raise ValueError("Record.target non può essere vuoto")
         if not self.url:
             raise ValueError("Record.url non può essere vuoto")
         if self.date is not None and not _DATE_RE.match(self.date):
