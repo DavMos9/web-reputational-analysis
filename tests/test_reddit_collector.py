@@ -124,9 +124,9 @@ class TestRedditCollector429:
         r429 = _make_response(429)
         r200 = _make_response(200, [SAMPLE_POST])
 
-        with patch("collectors.reddit_collector.requests.get", side_effect=[r429, r200]), \
-             patch("collectors.reddit_collector.time.sleep") as mock_sleep, \
-             patch("collectors.reddit_collector.random.uniform", return_value=5.0):
+        with patch("collectors.retry.requests.get", side_effect=[r429, r200]), \
+             patch("collectors.retry.time.sleep") as mock_sleep, \
+             patch("collectors.retry.random.uniform", return_value=5.0):
             records = collector.collect(target="T", query="q")
 
         assert len(records) == 1
@@ -137,9 +137,9 @@ class TestRedditCollector429:
         """Sia il tentativo iniziale sia il retry restituiscono 429."""
         r429 = _make_response(429)
 
-        with patch("collectors.reddit_collector.requests.get", side_effect=[r429, r429]), \
-             patch("collectors.reddit_collector.time.sleep"), \
-             patch("collectors.reddit_collector.random.uniform", return_value=0.0):
+        with patch("collectors.retry.requests.get", side_effect=[r429, r429]), \
+             patch("collectors.retry.time.sleep"), \
+             patch("collectors.retry.random.uniform", return_value=0.0):
             records = collector.collect(target="T", query="q")
 
         assert records == []
@@ -149,9 +149,9 @@ class TestRedditCollector429:
         r429 = _make_response(429)
         r200 = _make_response(200, [])
 
-        with patch("collectors.reddit_collector.requests.get", side_effect=[r429, r200]), \
-             patch("collectors.reddit_collector.time.sleep") as mock_sleep, \
-             patch("collectors.reddit_collector.random.uniform", return_value=7.3):
+        with patch("collectors.retry.requests.get", side_effect=[r429, r200]), \
+             patch("collectors.retry.time.sleep") as mock_sleep, \
+             patch("collectors.retry.random.uniform", return_value=7.3):
             collector.collect(target="T", query="q")
 
         actual_delay = mock_sleep.call_args[0][0]

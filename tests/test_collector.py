@@ -266,12 +266,12 @@ class TestBraveCollectorCollect:
         assert brave.collect("Elon Musk", "Elon Musk Tesla") == []
 
     @patch("collectors.brave_collector.BRAVE_API_KEY", "fake-key")
-    @patch("collectors.brave_collector.requests.get")
-    def test_collect_http_error_returns_empty(self, mock_get, brave):
-        """HTTP 429 (rate limit) viene gestito come errore recuperabile."""
+    @patch("collectors.brave_collector.http_get_with_retry")
+    def test_collect_http_error_returns_empty(self, mock_retry, brave):
+        """HTTP 429 (rate limit): http_get_with_retry restituisce la risposta al caller."""
         mock = MagicMock()
-        mock.raise_for_status.side_effect = requests.HTTPError("429 Too Many Requests")
-        mock_get.return_value = mock
+        mock.status_code = 429
+        mock_retry.return_value = mock
         assert brave.collect("Elon Musk", "Elon Musk Tesla") == []
 
     @patch("collectors.brave_collector.BRAVE_API_KEY", "fake-key")
