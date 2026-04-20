@@ -100,6 +100,9 @@ Input (target + queries)
     Enricher  ←  language detection + sentiment analysis (NLP opzionale)
         │
         ▼
+ Language filter  ←  filtro opzionale per lingua (--languages)
+        │
+        ▼
    Aggregator  ←  reputation score, trend, metriche entity-level
         │
         ▼
@@ -242,6 +245,21 @@ python main.py --target "Emmanuel Macron" --queries "Macron" --news-language fr
 
 > **Attenzione:** NewsAPI nel piano gratuito supporta un sottoinsieme limitato di lingue. Verificare la disponibilità su [newsapi.org/docs](https://newsapi.org/docs).
 
+### Filtro lingua post-enrichment
+
+Dopo l'arricchimento, è possibile escludere i record in lingue non desiderate tramite `--languages`. Accetta uno o più codici ISO 639-1 (case-insensitive). I record senza lingua rilevata (Wikipedia, WikiTalk, contenuti troppo corti) vengono sempre mantenuti.
+
+```bash
+# Solo inglese
+python main.py --target "Apple" --queries "Apple iphone" --languages en
+
+# Inglese e italiano
+python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni" --languages en it
+
+# Lingue romanze
+python main.py --target "Ferrari" --queries "Ferrari" --languages en it fr es pt
+```
+
 ### Opzioni disponibili
 
 | Parametro | Descrizione | Default |
@@ -251,6 +269,7 @@ python main.py --target "Emmanuel Macron" --queries "Macron" --news-language fr
 | `--sources` | Fonti da interrogare (es. `news gdelt mastodon lemmy`) | tutte |
 | `--max-results` | Risultati massimi per fonte/query | 20 |
 | `--news-language` | Lingua per NewsAPI (ISO 639-1) | `en` |
+| `--languages` | Filtra i record per lingua dopo l'enrichment (es. `en it fr`). Record senza lingua rilevata vengono mantenuti. | None (tutte) |
 | `--no-raw` | Non salvare i payload grezzi | False |
 | `--since` | Scarta record con data anteriore a `YYYY-MM-DD` | None |
 | `--dry-run` | Forza `max_results=1` — verifica API senza consumare quota | False |
@@ -467,6 +486,7 @@ web-reputational-analysis/
 │   ├── cleaner.py           # Pulizia stringhe e null
 │   ├── deduplicator.py      # Rimozione duplicati (URL + titolo+dominio)
 │   ├── enricher.py          # Language detection + sentiment analysis (NLP)
+│   ├── language_filter.py   # Filtro per lingua post-enrichment (--languages)
 │   └── aggregator.py        # Aggregazione entity-level e reputation score
 │
 ├── storage/                 # Persistenza

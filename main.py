@@ -73,6 +73,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--languages", nargs="+", default=None, metavar="LANG",
+        help=(
+            "Filtra i record per lingua (codici ISO 639-1, es. 'en it fr'). "
+            "Applicato dopo l'enrichment. Record senza lingua rilevata vengono mantenuti. "
+            "Default: nessun filtro (tutte le lingue)."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Forza max_results=1 per fonte/query. Verifica le API senza consumare quota.",
     )
@@ -115,6 +123,7 @@ def main() -> None:
             "news": {"language": args.news_language},
         },
         since=args.since,
+        languages=args.languages,
         dry_run=args.dry_run,
     )
 

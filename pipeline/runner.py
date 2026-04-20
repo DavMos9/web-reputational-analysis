@@ -11,6 +11,7 @@ from models import RawRecord, Record
 from pipeline.normalizer import normalize_all
 from pipeline.cleaner import clean_all, filter_quality
 from pipeline.date_filter import filter_by_date, parse_since
+from pipeline.language_filter import filter_by_language
 from pipeline.deduplicator import deduplicate
 from pipeline.enricher import Enricher
 from pipeline.aggregator import aggregate, EntitySummary
@@ -51,6 +52,7 @@ class PipelineConfig:
     parallel_collectors: bool       = True
     max_workers: int                = 8
     since: str | None               = None
+    languages: list[str] | None     = None
     dry_run: bool                   = False
 
     def __post_init__(self) -> None:
@@ -113,6 +115,17 @@ class PipelineRunner:
             return [], None
 
         records = self._enrich(records)
+
+        if config.languages:
+            records, n_lang = filter_by_language(records, config.languages)
+            log.info(
+                "Filtro lingua %s: %d mantenuti, %d scartati.",
+                config.languages, len(records), n_lang,
+            )
+            if not records:
+                log.warning("Nessun record rimasto dopo il filtro lingua.")
+                return [], None
+
         summary = aggregate(records)
         self._export_all(records, summary, config, timestamp)
 
