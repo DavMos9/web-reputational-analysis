@@ -76,6 +76,12 @@ SENTIMENT_SUPPORTED_LANGS: frozenset[str] = frozenset({
 NLP_MIN_LEN_DETECT: int = 15
 NLP_MIN_LEN_SENTIMENT: int = 15
 
+# Soglia di confidenza minima per accettare il risultato di langdetect.
+# Sotto questa soglia (es. testo troppo corto o ambiguo) → language=None.
+# 0.80 bilancia recall (non perdere record chiari) e precisione (non classificare male
+# commenti brevi che triggherano falsi positivi su lingue dominanti nel corpus).
+NLP_LANG_DETECT_MIN_CONFIDENCE: float = 0.80
+
 # Minimo record per regressione lineare statisticamente significativa.
 MIN_RECORDS_FOR_TREND: int = 3
 

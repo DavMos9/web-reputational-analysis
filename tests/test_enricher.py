@@ -237,6 +237,29 @@ class TestDetectLanguage:
             result = detect_language("This is a long enough English sentence for detection.")
         assert result is None
 
+    @langdetect_available
+    def test_low_confidence_returns_none(self):
+        """Se la confidenza del risultato migliore è sotto soglia → None (no falso positivo)."""
+        from unittest.mock import MagicMock
+        low_conf = MagicMock()
+        low_conf.prob = 0.50   # sotto _MIN_DETECT_CONFIDENCE (0.80)
+        low_conf.lang = "it"
+        with patch("pipeline.enricher._langdetect_detect_langs", return_value=[low_conf]):
+            result = detect_language("x" * 20)
+        assert result is None
+
+    @langdetect_available
+    def test_exact_threshold_accepted(self):
+        """Confidenza esattamente pari a soglia → accettata (confronto >=)."""
+        from unittest.mock import MagicMock
+        from pipeline.enricher import _MIN_DETECT_CONFIDENCE
+        at_threshold = MagicMock()
+        at_threshold.prob = _MIN_DETECT_CONFIDENCE
+        at_threshold.lang = "en"
+        with patch("pipeline.enricher._langdetect_detect_langs", return_value=[at_threshold]):
+            result = detect_language("x" * 20)
+        assert result == "en"
+
 
 # ---------------------------------------------------------------------------
 # Test: resolve_language()

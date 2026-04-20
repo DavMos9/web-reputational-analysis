@@ -12,6 +12,7 @@ from config import (
     SENTIMENT_SUPPORTED_LANGS as _SENTIMENT_SUPPORTED_LANGS,
     NLP_MIN_LEN_DETECT as _MIN_LEN_DETECT,
     NLP_MIN_LEN_SENTIMENT as _MIN_LEN_SENTIMENT,
+    NLP_LANG_DETECT_MIN_CONFIDENCE as _MIN_DETECT_CONFIDENCE,
 )
 from models import Record
 from normalizers.utils import normalize_language_code as _normalize_language_code
@@ -31,12 +32,12 @@ def build_analysis_text(record: Record) -> str:
 
 # Seed fisso: deterministismo su langdetect. Warning emesso una sola volta all'import.
 try:
-    from langdetect import DetectorFactory as _DetectorFactory, detect as _langdetect_detect
+    from langdetect import DetectorFactory as _DetectorFactory, detect_langs as _langdetect_detect_langs
     _DetectorFactory.seed = 0
     del _DetectorFactory
     _LANGDETECT_AVAILABLE: bool = True
 except ImportError:
-    _langdetect_detect = None  # type: ignore[assignment]
+    _langdetect_detect_langs = None  # type: ignore[assignment]
     _LANGDETECT_AVAILABLE = False
     log.warning(
         "langdetect non installato — language detection disabilitata. "
@@ -45,7 +46,18 @@ except ImportError:
 
 
 def detect_language(text: str) -> str | None:
-    """Rileva lingua ISO 639-1 con langdetect. None se testo troppo corto o rilevamento fallisce."""
+    """
+    Rileva lingua ISO 639-1 con langdetect usando detect_langs() + soglia di confidenza.
+
+    Restituisce None se:
+    - langdetect non è installato
+    - il testo è troppo corto (< NLP_MIN_LEN_DETECT)
+    - la confidenza del risultato migliore è sotto NLP_LANG_DETECT_MIN_CONFIDENCE
+    - la detection fallisce per qualsiasi motivo
+
+    La soglia previene falsi positivi su testi ambigui (commenti brevi, nomi propri
+    che influenzano il corpus) classificando come 'sconosciuto' invece di indovinare.
+    """
     if not _LANGDETECT_AVAILABLE:
         return None
 
@@ -53,8 +65,19 @@ def detect_language(text: str) -> str | None:
         return None
 
     try:
-        raw = _langdetect_detect(text)  # type: ignore[misc]
-        return _normalize_language_code(raw)
+        results = _langdetect_detect_langs(text)  # type: ignore[misc]
+        if not results:
+            return None
+
+        top = results[0]  # risultato con probabilità più alta
+        if top.prob < _MIN_DETECT_CONFIDENCE:
+            log.debug(
+                "Language detection sotto soglia (prob=%.2f < %.2f) per testo di %d chars.",
+                top.prob, _MIN_DETECT_CONFIDENCE, len(text),
+            )
+            return None
+
+        return _normalize_language_code(top.lang)
 
     except Exception as exc:
         log.debug(

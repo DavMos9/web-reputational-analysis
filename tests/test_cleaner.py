@@ -10,6 +10,7 @@ Copertura:
 - clean(): campi optional — stringa vuota → None
 - clean(): campi optional già None restano None
 - clean(): Record già pulito non viene copiato inutilmente (stessa istanza)
+- clean(): rimozione U+2028 LINE SEPARATOR e U+2029 PARAGRAPH SEPARATOR
 - clean_all(): lista vuota e lista con record misti
 """
 
@@ -119,6 +120,25 @@ class TestCleanRequired:
         r = _record(text="Prima riga\nSeconda riga\nTerza riga")
         cleaned = clean(r)
         assert cleaned.text == "Prima riga\nSeconda riga\nTerza riga"
+
+    def test_removes_line_separator_u2028(self):
+        """U+2028 LINE SEPARATOR causa warning VS Code nei file JSON esportati."""
+        r = _record(text="testo con\u2028separatore di riga")
+        cleaned = clean(r)
+        assert "\u2028" not in cleaned.text
+        assert cleaned.text == "testo conseparatore di riga"
+
+    def test_removes_paragraph_separator_u2029(self):
+        """U+2029 PARAGRAPH SEPARATOR — stesso problema di U+2028."""
+        r = _record(title="titolo\u2029con PS")
+        cleaned = clean(r)
+        assert "\u2029" not in cleaned.title
+        assert cleaned.title == "titolocon PS"
+
+    def test_removes_both_unicode_separators_mixed(self):
+        r = _record(text="a\u2028b\u2029c")
+        cleaned = clean(r)
+        assert cleaned.text == "abc"
 
     def test_decodes_html_entities_in_author(self):
         r = _record(author="Redazione &amp; Staff")

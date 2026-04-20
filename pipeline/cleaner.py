@@ -22,7 +22,8 @@ def _clean_str(value: str | None) -> str:
     if value is None:
         return ""
     raw = html.unescape(str(value).strip())
-    raw = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", raw)
+    # C0/C1 control chars + U+2028 LINE SEPARATOR + U+2029 PARAGRAPH SEPARATOR.
+    raw = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u2028\u2029]", "", raw)
     # \xa0 (non-breaking space di Google News) collassato come spazio normale.
     raw = re.sub(r"[ \t\xa0]+", " ", raw)
     return unicodedata.normalize("NFC", raw.strip())

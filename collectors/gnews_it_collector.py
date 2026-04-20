@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 import requests
 
@@ -85,8 +86,9 @@ class GNewsItCollector(BaseCollector):
                 )
                 resolved = resp.url
                 # consent.google.com: gate GDPR su target anglofoni nel feed IT.
-                # In quel caso manteniamo l'URL originale per evitare che il cleaner scarti il record.
-                if resolved and not resolved.startswith("https://consent.google.com"):
+                # Confronto sul netloc esatto (non substring) per evitare falsi match
+                # su domini come consent.google.com.evil.com (CWE-20).
+                if resolved and urlparse(resolved).netloc != "consent.google.com":
                     if resolved != original:
                         return {**item, "link": resolved}
             except Exception:
