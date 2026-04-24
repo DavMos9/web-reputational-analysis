@@ -221,15 +221,22 @@ class WikiTalkCollector(BaseCollector):
 
     @classmethod
     def _clean_wikitext(cls, text: str) -> str:
-        """Rimuove template, link e markup wiki per estrarre testo leggibile."""
+        """Rimuove template, link, markup wiki e tag HTML per estrarre testo leggibile."""
         if not text:
             return ""
         cleaned = re.sub(r"~{3,5}", "", text)          # firma e timestamp
         cleaned = cls._strip_templates(cleaned)
+        # <ref>...</ref> e <ref .../> — citazioni: rimossi con il loro contenuto
+        cleaned = re.sub(r"<ref\b[^>]*/\s*>", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"<ref\b[^>]*>.*?</ref\s*>", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        # Tag HTML rimanenti (<br>, <small>, <nowiki>, <s>, ecc.) — rimossi, contenuto mantenuto
+        cleaned = re.sub(r"<[^>]+>", "", cleaned)
         cleaned = re.sub(r"\[\[[^|\]]*\|([^\]]+)\]\]", r"\1", cleaned)
         cleaned = re.sub(r"\[\[([^\]]+)\]\]", r"\1", cleaned)
         cleaned = re.sub(r"\[https?://\S+\s+([^\]]+)\]", r"\1", cleaned)
         cleaned = re.sub(r"'{2,3}", "", cleaned)
+        # Intestazioni residue di sotto-sezioni (== ... ==) dentro una sezione
+        cleaned = re.sub(r"^={2,}.+?={2,}\s*$", "", cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r"^[:*#]+\s?", "", cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()

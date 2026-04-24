@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
 
 ---
@@ -319,6 +319,8 @@ Ogni record rispetta il seguente schema unificato, definito in `models/record.py
 
 **Campi opzionali:** tutti gli altri (`null` se non disponibili)
 
+**`text`:** corpo del testo o estratto. Dopo la pulizia viene troncato a **1500 caratteri** al confine di frase più vicino (configurabile via `MAX_TEXT_LENGTH` in `config.py`, 0 = disabilitato). Il limite supera il range effettivo del modello NLP (~512 token ≈ 400–600 char), che non traeva beneficio dal testo aggiuntivo.
+
 **`language`:** codice ISO 639-1 (es. `"en"`, `"it"`). Per sorgenti che non espongono la lingua nel payload (Guardian, NYT), il valore viene rilevato automaticamente dall'enricher tramite langdetect.
 
 **`sentiment`:** float in `[-1.0, 1.0]`. Calcolato come `P(positive) - P(negative)` tramite XLM-RoBERTa multilingue. Supportato per: ar, en, fr, de, hi, it, pt, es. `null` per lingue non supportate o testo troppo breve.
@@ -336,6 +338,9 @@ Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'
 ```json
 {
   "entity": "Giorgia Meloni",
+  "queries": [
+    "Giorgia Meloni"
+  ],
   "record_count": 236,
   "records_with_sentiment": 228,
   "source_distribution": {
@@ -390,6 +395,9 @@ Esecuzione reale su `"Giorgia Meloni"` con query `"Giorgia Meloni"` e filtro `--
 ```json
 {
   "entity": "Giorgia Meloni",
+  "queries": [
+    "Giorgia Meloni"
+  ],
   "record_count": 236,
   "records_with_sentiment": 228,
   "source_distribution": {
@@ -518,6 +526,7 @@ web-reputational-analysis/
     ├── test_aggregator.py
     ├── test_summary_json_exporter.py
     ├── test_slugify.py
+    ├── test_wikitalk_collector.py
     └── test_pipeline_e2e.py  # Test di integrazione E2E + coerenza schema CSV
 ```
 

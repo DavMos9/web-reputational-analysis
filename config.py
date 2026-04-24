@@ -93,6 +93,15 @@ MIN_RECORDS_FOR_TREND: int = 3
 MIN_TEXT_LENGTH:  int = 30   # caratteri minimi nel campo `text`
 MIN_TITLE_LENGTH: int = 5    # caratteri minimi nel campo `title`
 
+# Tetto massimo per il campo `text` dopo la pulizia.
+# XLM-RoBERTa (sentiment): limite fisso 512 token ≈ 350-600 char — tutto ciò che supera
+# viene troncato internamente dal tokenizer senza contribuire al risultato.
+# langdetect: affidabile già con 200+ char.
+# 1500 char è 3× il limite effettivo del modello: garantisce copertura piena per NLP
+# mantenendo file JSON/CSV leggibili e di dimensione ragionevole.
+# Impostare a 0 per disabilitare il troncamento.
+MAX_TEXT_LENGTH: int = 1500
+
 # Consent page e aggregatori senza contenuto utile.
 # consent.google.com: gate GDPR che appare su feed IT per articoli anglofoni.
 BLOCKED_DOMAINS: frozenset[str] = frozenset({
@@ -163,6 +172,11 @@ def _validate_config() -> None:
         raise ValueError(
             f"config: MIN_SOURCE_TRUST deve essere in [0.0, 1.0], "
             f"ricevuto: {MIN_SOURCE_TRUST}."
+        )
+    if MAX_TEXT_LENGTH < 0:
+        raise ValueError(
+            f"config: MAX_TEXT_LENGTH deve essere >= 0 (0 = disabilitato), "
+            f"ricevuto: {MAX_TEXT_LENGTH}."
         )
     if VOLUME_HALFSAT < 1:
         raise ValueError(

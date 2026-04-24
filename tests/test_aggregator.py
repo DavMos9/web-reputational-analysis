@@ -491,3 +491,57 @@ class TestEntitySummaryToDict:
         summary = aggregate([_record(date_str=None)])
         d = summary.to_dict()
         assert d["date_range"] is None
+
+    def test_queries_present_in_dict(self):
+        """Il campo queries deve essere presente nel dizionario serializzato."""
+        summary = aggregate([_record(source="news", sentiment=0.5)])
+        d = summary.to_dict()
+        assert "queries" in d
+        assert isinstance(d["queries"], list)
+        assert "test query" in d["queries"]
+
+
+# ---------------------------------------------------------------------------
+# Test: aggregate() — campo queries
+# ---------------------------------------------------------------------------
+
+class TestAggregateQueries:
+
+    def test_single_query(self):
+        records = [
+            _record(url="https://a.com/1"),
+            _record(url="https://a.com/2"),
+        ]
+        summary = aggregate(records)
+        assert summary.queries == ["test query"]
+
+    def test_multiple_distinct_queries_sorted(self):
+        """Query distinte ordinate alfabeticamente."""
+        r1 = Record(
+            source="news", query="Trump impeachment", target="TestEntity",
+            title="T1", text="text", date="2026-04-01",
+            url="https://a.com/1",
+        )
+        r2 = Record(
+            source="news", query="Donald Trump", target="TestEntity",
+            title="T2", text="text", date="2026-04-02",
+            url="https://a.com/2",
+        )
+        summary = aggregate([r1, r2])
+        assert summary.queries == ["Donald Trump", "Trump impeachment"]
+
+    def test_duplicate_queries_deduplicated(self):
+        """Query identiche appaiono una volta sola."""
+        records = [_record(url=f"https://a.com/{i}") for i in range(5)]
+        summary = aggregate(records)
+        assert summary.queries.count("test query") == 1
+
+    def test_empty_query_excluded(self):
+        """Query vuota o None non appare nella lista."""
+        r = Record(
+            source="news", query="", target="TestEntity",
+            title="T", text="text", date="2026-04-01",
+            url="https://a.com/1",
+        )
+        summary = aggregate([r])
+        assert summary.queries == []

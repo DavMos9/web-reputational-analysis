@@ -6,6 +6,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- `aggregator.py` — `EntitySummary` now includes a `queries` field: the sorted list of
+  distinct queries used during collection. Provides context in the summary JSON about
+  what was searched for, not just the target entity.
+- `cleaner.py` — added `_truncate_text()`: the `text` field is now capped at
+  `MAX_TEXT_LENGTH` characters (default 1500) after cleaning, truncated at the nearest
+  word boundary. XLM-RoBERTa's effective limit is ~512 tokens (≈350–600 chars); longer
+  texts were silently truncated by the tokenizer anyway. Configurable in `config.py`
+  (set to 0 to disable). Does not affect `title` or any other field.
+- `config.py` — added `MAX_TEXT_LENGTH = 1500` constant with validation.
+- `wikitalk_collector.py` — `_clean_wikitext()` now strips HTML tags from wikitext.
+  `<ref>...</ref>` and `<ref .../>` are removed with their content (citations).
+  All other inline tags (`<br>`, `<small>`, `<nowiki>`, `<s>`, etc.) are stripped
+  while preserving their text content. Sub-section heading markers (`== ... ==`)
+  within a section are also removed.
+- Added `tests/test_wikitalk_collector.py` with 17 unit tests for `_clean_wikitext`.
+
+---
+
 ## [1.0.0] — 2026-04-20
 
 First stable release. The pipeline is complete end-to-end: collection, normalization,

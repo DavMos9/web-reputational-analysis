@@ -8,7 +8,7 @@ import re
 import unicodedata
 from dataclasses import replace
 
-from config import MIN_TEXT_LENGTH, MIN_TITLE_LENGTH, BLOCKED_DOMAINS
+from config import MIN_TEXT_LENGTH, MIN_TITLE_LENGTH, BLOCKED_DOMAINS, MAX_TEXT_LENGTH
 from models import Record
 
 log = logging.getLogger(__name__)
@@ -29,12 +29,51 @@ def _clean_str(value: str | None) -> str:
     return unicodedata.normalize("NFC", raw.strip())
 
 
+def _truncate_text(text: str) -> str:
+    """Tronca `text` a MAX_TEXT_LENGTH caratteri al confine di frase più vicino.
+
+    Strategia a tre livelli (dalla più preferibile alla più grezza):
+      1. Ultimo punto fermo/esclamativo/interrogativo entro il limite
+         → testo semanticamente completo, ideale per NLP ed export.
+      2. Ultimo spazio entro il limite (fallback se nessun '.' abbastanza vicino)
+         → almeno non spezza una parola a metà.
+      3. Taglio netto a MAX_TEXT_LENGTH (ultimo fallback per testi senza spazi).
+
+    La soglia "abbastanza vicino" è MAX_TEXT_LENGTH // 2: evita di restituire
+    uno spezzone troppo corto quando la prima frase è già molto lunga.
+    Se MAX_TEXT_LENGTH è 0 la funzione è no-op.
+    """
+    if not MAX_TEXT_LENGTH or len(text) <= MAX_TEXT_LENGTH:
+        return text
+    truncated = text[:MAX_TEXT_LENGTH]
+    floor = MAX_TEXT_LENGTH // 2  # posizione minima accettabile per il taglio
+
+    # Livello 1 — confine di frase
+    last_sentence = max(
+        truncated.rfind("."),
+        truncated.rfind("!"),
+        truncated.rfind("?"),
+    )
+    if last_sentence > floor:
+        return truncated[:last_sentence + 1]
+
+    # Livello 2 — confine di parola
+    last_space = truncated.rfind(" ")
+    if last_space > floor:
+        return truncated[:last_space]
+
+    # Livello 3 — taglio netto (testi senza spazi o frasi lunghissime)
+    return truncated
+
+
 def clean(record: Record) -> Record:
     """Pulisce i valori testuali del Record. Il Record originale non viene modificato."""
     updates: dict = {}
 
     for f in _REQUIRED_STR:
         cleaned = _clean_str(getattr(record, f, ""))
+        if f == "text":
+            cleaned = _truncate_text(cleaned)
         if cleaned != getattr(record, f, ""):
             updates[f] = cleaned
 

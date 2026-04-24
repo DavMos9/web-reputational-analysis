@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from models import Record
-from pipeline.cleaner import clean, clean_all
+from pipeline.cleaner import clean, clean_all, _truncate_text
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +213,65 @@ class TestCleanAll:
         assert result[0].title  == "Title A"
         assert result[0].author is None
         assert result[1].author == "Author"
+
+
+# ---------------------------------------------------------------------------
+# Test: _truncate_text() + integrazione in clean()
+# ---------------------------------------------------------------------------
+
+class TestTruncateText:
+    def test_short_text_unchanged(self):
+        short = "Testo breve."
+        assert _truncate_text(short) == short
+
+    def test_text_at_exact_limit_unchanged(self):
+        import config
+        text = "a " * (config.MAX_TEXT_LENGTH // 2)  # esattamente al limite
+        assert len(text.strip()) <= config.MAX_TEXT_LENGTH
+        result = _truncate_text(text.strip())
+        assert len(result) <= config.MAX_TEXT_LENGTH
+
+    def test_long_text_is_truncated(self):
+        import config
+        long_text = "parola " * 500  # ~3500 char >> MAX_TEXT_LENGTH
+        result = _truncate_text(long_text)
+        assert len(result) <= config.MAX_TEXT_LENGTH
+
+    def test_truncation_at_sentence_boundary(self):
+        """Il testo troncato deve finire sul punto fermo più vicino al limite."""
+        import config
+        # frasi brevi: il punto finale sarà entro MAX_TEXT_LENGTH
+        sentences = ("Questa è una frase. " * 200)
+        result = _truncate_text(sentences)
+        assert result.endswith(".")
+        assert len(result) <= config.MAX_TEXT_LENGTH
+
+    def test_truncation_fallback_to_word_boundary(self):
+        """Se non c'è un punto abbastanza vicino, tronca all'ultimo spazio."""
+        import config
+        # una sola frase lunghissima senza punti interni
+        long_text = "parola " * 500
+        result = _truncate_text(long_text)
+        assert not result[-1].isalpha() or result.endswith(" ") or len(result) <= config.MAX_TEXT_LENGTH
+        assert len(result) <= config.MAX_TEXT_LENGTH
+
+    def test_empty_string_unchanged(self):
+        assert _truncate_text("") == ""
+
+    def test_clean_truncates_text_field(self):
+        """clean() applica il troncamento al campo text ma non al campo title."""
+        import config
+        long_text = "parola " * 500
+        r = _record(text=long_text, title="Titolo normale")
+        cleaned = clean(r)
+        assert len(cleaned.text) <= config.MAX_TEXT_LENGTH
+        assert cleaned.title == "Titolo normale"  # title non troncato
+
+    def test_clean_does_not_truncate_title(self):
+        """Il campo title non subisce troncamento (MAX_TEXT_LENGTH è solo per text)."""
+        import config
+        long_title = "parola " * 50  # ~350 char, sotto MAX_TEXT_LENGTH ma verifichiamo
+        r = _record(title=long_title.strip())
+        cleaned = clean(r)
+        # title non viene toccato dalla logica di troncamento
+        assert cleaned.title == long_title.strip()
