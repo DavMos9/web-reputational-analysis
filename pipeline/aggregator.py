@@ -34,7 +34,8 @@ class EntitySummary:
     """
 
     entity: str
-    queries: list[str]          # query usate nella raccolta, ordinate alfabeticamente
+    queries: list[str]          # query composte usate nella raccolta, ordinate alfabeticamente
+    topics: list[str]           # topic originali (es. ["Euphoria", "Acting"]), ordinati alfabeticamente
     record_count: int
     records_with_sentiment: int
     source_distribution: dict[str, int]
@@ -275,6 +276,7 @@ def aggregate(records: list[Record]) -> EntitySummary:
         )
 
     queries = sorted({r.query for r in records if r.query})
+    topics  = sorted({r.topic for r in records if r.topic})
 
     source_dist = _compute_source_distribution(records)
     sentiment_avg, sentiment_std, sentiment_count = _compute_weighted_sentiment(records)
@@ -291,6 +293,7 @@ def aggregate(records: list[Record]) -> EntitySummary:
     summary = EntitySummary(
         entity=entity,
         queries=queries,
+        topics=topics,
         record_count=len(records),
         records_with_sentiment=sentiment_count,
         source_distribution=source_dist,

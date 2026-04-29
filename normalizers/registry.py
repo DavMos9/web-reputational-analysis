@@ -74,6 +74,20 @@ def registered_sources() -> list[str]:
     return list(_REGISTRY.keys())
 
 
+def _extract_topic(target: str, query: str) -> str:
+    """Estrae il topic dalla query composta — inverso di build_query() in main.py.
+
+    Se la query inizia con '{target} ' (case-insensitive), restituisce la parte
+    rimanente (es. "Elon Musk Tesla" → "Tesla").
+    Altrimenti restituisce la query intera — caso passthrough di build_query
+    (es. target="Emmanuel Macron", query="Macron" → "Macron").
+    """
+    prefix = target + " "
+    if query.lower().startswith(prefix.lower()):
+        return query[len(prefix):]
+    return query
+
+
 def normalize(raw: RawRecord) -> Record | None:
     """Dispatcha al normalizer registrato. Non propaga eccezioni. None se record non normalizzabile."""
     fn = _REGISTRY.get(raw.source)
@@ -111,6 +125,9 @@ def normalize(raw: RawRecord) -> Record | None:
             str(raw.payload.get("title", ""))[:60],
         )
         return None
+
+    # Calcola il topic in un unico posto: tutti i record passano da qui.
+    record.topic = _extract_topic(raw.target, raw.query)
 
     return record
 

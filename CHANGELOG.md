@@ -8,6 +8,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `models/record.py` — aggiunto campo `topic: str` a `Record` (default `""`).
+  Contiene il topic di ricerca originale estratto dalla query composta
+  (es. query `"Jacob Elordi Euphoria"` con target `"Jacob Elordi"` → `topic="Euphoria"`).
+  Il campo è incluso in `_EXPORT_FIELDS` e quindi presente nel CSV finale,
+  posizionato tra `query` e `target`. Nessun normalizer source-specific è stato modificato.
+- `normalizers/registry.py` — aggiunta funzione `_extract_topic(target, query)` che calcola
+  il topic come inverso di `build_query()`: se la query inizia con `"{target} "`, restituisce
+  la parte rimanente; altrimenti restituisce la query intera (caso passthrough).
+  Viene chiamata in `normalize()` dopo ogni normalizzazione — unico punto in cui tutti
+  i record transitano — garantendo che `topic` sia sempre valorizzato prima dell'export.
+- `pipeline/aggregator.py` — aggiunto campo `topics: list[str]` a `EntitySummary`:
+  lista ordinata dei topic distinti presenti nei record (es. `["Euphoria", "Acting"]`).
+  Posizionato dopo `queries` nel summary JSON. Il record-level JSON (`*_final.json`)
+  include già `topic` automaticamente tramite `record.to_dict()` senza modifiche
+  all'esporter.
+
+### Changed
+
+- `main.py` — `--queries` ora accetta **topic tematici** relativi al target. La query
+  finale inviata alle API viene auto-composta come `"{target} {topic}"` tramite la
+  nuova funzione `build_query()`. Se il topic contiene già parole del target
+  (confronto case-insensitive per parola), viene usato as-is (passthrough). Questo
+  elimina la ridondanza di dover ripetere il target in ogni query
+  (es. `--target "Elon Musk" --queries "Tesla" "SpaceX"` invece di
+  `"Elon Musk Tesla" "Elon Musk SpaceX"`). Il comportamento di `PipelineConfig`,
+  `PipelineRunner` e dei collector è invariato: ricevono sempre query già composte.
+
 ### Fixed
 
 - `aggregator.py` — `EntitySummary` now includes a `queries` field: the sorted list of

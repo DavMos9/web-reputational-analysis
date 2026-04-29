@@ -2,11 +2,15 @@
 Web Reputational Analysis — Entry point CLI
 
 Uso:
-    python main.py --target "Nome Cognome" --queries "query1" "query2" [opzioni]
+    python main.py --target "Nome Cognome" --queries "topic1" "topic2" [opzioni]
+
+Le query accettano topic tematici relativi al target. Se il topic non contiene già
+parole del target, la query finale viene composta automaticamente come
+"{target} {topic}". Se il topic le contiene già, viene usato as-is.
 
 Esempi:
-    python main.py --target "Elon Musk" --queries "Elon Musk Tesla" "Elon Musk SpaceX"
-    python main.py --target "Apple" --queries "Apple scandal" --sources news gdelt
+    python main.py --target "Elon Musk" --queries "Tesla" "SpaceX"
+    python main.py --target "Apple" --queries "scandal" --sources news gdelt
     python main.py --target "Mario Rossi" --queries "Mario Rossi" --no-raw
 """
 
@@ -34,6 +38,27 @@ OPT_IN_SOURCES = frozenset({"stackexchange", "hackernews"})
 DEFAULT_SOURCES = [s for s in ALL_SOURCES if s not in OPT_IN_SOURCES]
 
 
+def build_query(target: str, topic: str) -> str:
+    """Compone target + topic in una stringa di ricerca.
+
+    Se il topic contiene già almeno una parola del target (confronto case-insensitive),
+    viene restituito as-is per evitare duplicazioni (es. "Macron" con target
+    "Emmanuel Macron"). Altrimenti viene preposto il target: "Elon Musk Tesla".
+
+    Esempi:
+        build_query("Elon Musk", "Tesla")       → "Elon Musk Tesla"
+        build_query("Elon Musk", "SpaceX")      → "Elon Musk SpaceX"
+        build_query("Giorgia Meloni", "governo") → "Giorgia Meloni governo"
+        build_query("Emmanuel Macron", "Macron") → "Macron"  (passthrough)
+        build_query("Apple", "Apple iPhone")    → "Apple iPhone"  (passthrough)
+    """
+    target_words = set(target.lower().split())
+    topic_lower  = topic.lower()
+    if any(word in topic_lower for word in target_words):
+        return topic
+    return f"{target} {topic}"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Web Reputational Analysis — pipeline di raccolta dati da fonti web"
@@ -44,7 +69,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--queries", required=True, nargs="+",
-        help="Una o più query di ricerca",
+        help=(
+            "Uno o più topic di ricerca relativi al target. "
+            "Se il topic non contiene già parole del target, la query finale viene "
+            "composta automaticamente come '{target} {topic}' "
+            "(es. --target 'Elon Musk' --queries 'Tesla' → cerca 'Elon Musk Tesla'). "
+            "Se il topic contiene già parole del target viene usato as-is."
+        ),
     )
     parser.add_argument(
         "--sources", nargs="+", default=DEFAULT_SOURCES, choices=ALL_SOURCES,
@@ -113,9 +144,12 @@ def main() -> None:
             "[DRY RUN] max_results forzato a 1 per ogni fonte/query."
         )
 
+    # Auto-composizione: "{target} {topic}" se il topic non contiene già parole del target.
+    queries = [build_query(args.target, q) for q in args.queries]
+
     config = PipelineConfig(
         target=args.target,
-        queries=args.queries,
+        queries=queries,
         sources=args.sources,
         max_results=args.max_results,
         save_raw=not args.no_raw,

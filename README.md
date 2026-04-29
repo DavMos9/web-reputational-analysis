@@ -223,8 +223,10 @@ Risultato: 236 record finali esportati in data/final/
 ### Query multiple
 
 ```bash
-python main.py --target "Elon Musk" --queries "Elon Musk Tesla" "Elon Musk SpaceX"
+python main.py --target "Elon Musk" --queries "Tesla" "SpaceX"
 ```
+
+> **Auto-composizione query:** `--queries` accetta topic tematici. Se il topic non contiene già parole del target, la query finale viene composta automaticamente come `"{target} {topic}"`. Nell'esempio sopra, `"Tesla"` diventa `"Elon Musk Tesla"` e `"SpaceX"` diventa `"Elon Musk SpaceX"`. Se il topic contiene già parole del target (es. `"Giorgia Meloni governo"` con target `"Giorgia Meloni"`), viene usato as-is.
 
 ### Selezione fonti specifiche
 
@@ -240,7 +242,7 @@ NewsAPI supporta il filtraggio per lingua. Il default è `en` (inglese):
 # Risultati in italiano
 python main.py --target "Giorgia Meloni" --queries "Giorgia Meloni" --news-language it
 
-# Risultati in francese
+# Risultati in francese (topic "Macron" → passthrough, "macron" è parola del target)
 python main.py --target "Emmanuel Macron" --queries "Macron" --news-language fr
 ```
 
@@ -266,7 +268,7 @@ python main.py --target "Ferrari" --queries "Ferrari" --languages en it fr es pt
 | Parametro | Descrizione | Default |
 |---|---|---|
 | `--target` | Entità da analizzare | obbligatorio |
-| `--queries` | Una o più query di ricerca | obbligatorio |
+| `--queries` | Uno o più topic di ricerca. Se il topic non contiene parole del target, la query finale viene auto-composta come `"{target} {topic}"` | obbligatorio |
 | `--sources` | Fonti da interrogare (es. `news gdelt mastodon lemmy`) | tutte |
 | `--max-results` | Risultati massimi per fonte/query | 20 |
 | `--news-language` | Lingua per NewsAPI (ISO 639-1) | `en` |
@@ -299,6 +301,7 @@ Ogni record rispetta il seguente schema unificato, definito in `models/record.py
 {
   "source":         "news",
   "query":          "Giorgia Meloni",
+  "topic":          "Giorgia Meloni",
   "target":         "Giorgia Meloni",
   "title":          "Titolo articolo",
   "text":           "Corpo del testo o estratto",
@@ -316,6 +319,8 @@ Ogni record rispetta il seguente schema unificato, definito in `models/record.py
 ```
 
 **Campi obbligatori:** `source`, `query`, `target`, `title`, `text`, `url`
+
+**`topic`:** topic di ricerca originale estratto dalla query (es. query `"Giorgia Meloni governo"` → `topic="governo"`). Calcolato automaticamente dal normalizer registry come inverso di `build_query()`.
 
 **Campi opzionali:** tutti gli altri (`null` se non disponibili)
 
@@ -339,6 +344,9 @@ Oltre ai record individuali, la pipeline produce un file `*_summary.json` con l'
 {
   "entity": "Giorgia Meloni",
   "queries": [
+    "Giorgia Meloni"
+  ],
+  "topics": [
     "Giorgia Meloni"
   ],
   "record_count": 236,
@@ -396,6 +404,9 @@ Esecuzione reale su `"Giorgia Meloni"` con query `"Giorgia Meloni"` e filtro `--
 {
   "entity": "Giorgia Meloni",
   "queries": [
+    "Giorgia Meloni"
+  ],
+  "topics": [
     "Giorgia Meloni"
   ],
   "record_count": 236,

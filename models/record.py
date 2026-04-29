@@ -43,6 +43,7 @@ class Record:
     date: str | None
     url: str
 
+    topic: str           = ""   # topic originale (es. "Euphoria"), calcolato dal normalizer registry
     author: str | None      = None
     language: str | None    = None
     domain: str             = ""
@@ -59,7 +60,7 @@ class Record:
     _EXPORT_EXCLUDE: ClassVar[frozenset[str]] = frozenset({"raw_payload"})
 
     _EXPORT_FIELDS: ClassVar[tuple[str, ...]] = (
-        "source", "query", "target",
+        "source", "query", "topic", "target",
         "title", "text", "date", "url",
         "author", "language", "domain", "retrieved_at",
         "views_count", "likes_count", "comments_count",
